@@ -1,0 +1,10 @@
+cdsapi
+netCDF4
+numpy
+gdal
+osr
+scipy
+scikit-image
+pyyaml
+git+https://github.com/hectornieto/pyTSEB
+git+https://github.com/radosuav/pyDMS
