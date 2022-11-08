@@ -27,12 +27,37 @@ def process_single_date(elev_input_file,
                         aspect_input_file,
                         date_int,
                         acq_time,
-                        dst_folder,
+                        dst_folder=None,
                         svf_input_file=None,
                         blending_height=100):
+    """
+
+    Parameters
+    ----------
+    elev_input_file : str
+        Path to a GDAL compatible Digital Elevation Model
+    slope_input_file : str
+        Path to a GDAL compatible slope image (degrees)
+    aspect_input_file : str
+        Path to a GDAL compatible aspect image (0 for flat surfaces)
+    date_int : int or str
+        Acquisition date (YYYYMMDD)
+    acq_time : float
+        Acquistion time in decimal hour
+    dst_folder : str, optional
+        Path to the destination folder in which meteo products will be stored.
+    svf_input_file : str, optional
+        Path to a GDAL compatible Sky View Fraction image (0-1)
+    blending_height : float, optional
+        Elevation above ground level at which meteo products will be generated, default=100 magl
+
+    Returns
+    -------
+    output : dict
+        Dictionary of arrays with the output meteo products
+    """
 
     dst_folder = Path(dst_folder)
-    folder_name = dst_folder.stem
     print(f"Downloading \"{', '.join(CDS_VARIABLES)}\" from the Copernicus Climate Store")
     fid = gdal.Open(elev_input_file, gdal.GA_ReadOnly)
     gt = fid.GetGeoTransform()
@@ -50,7 +75,7 @@ def process_single_date(elev_input_file,
     # Area is North, West, South, East
     extent_geo = p(minx, maxy, inverse=True), p(maxx, miny, inverse=True)
     area = f"{extent_geo[0][1] + 1} / {extent_geo[0][0] - 1} / " \
-           f"{extent_geo[1][1] + 1} / {extent_geo[1][0] - 1}"
+           f"{extent_geo[1][1] - 1} / {extent_geo[1][0] + 1}"
     print(f"Querying products for extent {area}\n"
           f"..and dates {date_obj - dt.timedelta(1)} to {date_obj + dt.timedelta(1)}")
 
@@ -123,27 +148,27 @@ def process_single_date(elev_input_file,
                                svf_file=svf_input_file)
 
     out_dict = {}
-    for param, array in output.items():
-        if param not in DAILY_VARS:
-            filename = f"{date_int}T{acq_time}_{param.upper()}.tif"
-        else:
-            filename = f"{date_int}_{param.upper()}.tif"
-        dst_file = str(dst_folder / filename)
-        print(f"Saving {param} to {dst_file}")
-        driver = gdal.GetDriverByName("MEM")
-        dims = array.shape
-        ds = driver.Create("MEM", dims[1], dims[0], 1, gdal.GDT_Float32)
-        ds.SetProjection(proj)
-        ds.SetGeoTransform(gt)
-        ds.GetRasterBand(1).WriteArray(array)
-        driver_opt = ['COMPRESS=DEFLATE', 'PREDICTOR=1', 'BIGTIFF=IF_SAFER']
-        gdal.Translate(dst_file, ds, format="GTiff",
-                       creationOptions=driver_opt, stats=True)
+    if dst_folder:
+        for param, array in output.items():
+            if param not in DAILY_VARS:
+                filename = f"{date_int}T{acq_time}_{param.upper()}.tif"
+            else:
+                filename = f"{date_int}_{param.upper()}.tif"
+            dst_file = str(dst_folder / filename)
+            print(f"Saving {param} to {dst_file}")
+            driver = gdal.GetDriverByName("MEM")
+            dims = array.shape
+            ds = driver.Create("MEM", dims[1], dims[0], 1, gdal.GDT_Float32)
+            ds.SetProjection(proj)
+            ds.SetGeoTransform(gt)
+            ds.GetRasterBand(1).WriteArray(array)
+            driver_opt = ['COMPRESS=DEFLATE', 'PREDICTOR=1', 'BIGTIFF=IF_SAFER']
+            gdal.Translate(dst_file, ds, format="GTiff",
+                           creationOptions=driver_opt, stats=True)
 
-        out_dict[filename] = dst_file
         del ds
 
-    return out_dict
+    return output
 
 
 if __name__ == "__main__":
