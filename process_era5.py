@@ -175,7 +175,7 @@ if __name__ == "__main__":
 
     elev_input_file = "/path/to/the/dem/file"
     slope_input_file = "/path/to/the/slope/file" # In degrees
-    aspect_input_file = "/path/to/the/aspect/file"  # -9999 for flat
+    aspect_input_file = "/path/to/the/aspect/file"  # 0 for flat
     svf_input_file = "/path/to/the/sky/view/fraction/file"  # 0-1
     elev_input_file = "./test/dem.tif"
     slope_input_file = "./test/slope.tif"
