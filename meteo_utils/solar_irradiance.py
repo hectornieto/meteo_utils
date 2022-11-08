@@ -178,3 +178,10 @@ def calc_sun_angles(lat, lon, stdlon, doy, ftime):
     saa[w <= 0.0] = np.degrees(np.arccos(cos_phi[w <= 0.0]))
     saa[w > 0.0] = 360. - np.degrees(np.arccos(cos_phi[w > 0.0]))
     return np.asarray(sza), np.asarray(saa)
+
+def angle_average(*angles):
+    angles = [np.radians(i) for i in angles]
+    mean_angle = np.arctan2(np.mean(np.sin(angles)), np.mean(np.cos(angles)))
+    mean_angle = np.degrees(mean_angle)
+    return mean_angle
+
