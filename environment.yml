@@ -1,0 +1,16 @@
+channels:
+  - conda-forge
+  - default
+dependencies:
+  - cdsapi
+  - netCDF4
+  - numpy
+  - gdal
+  - scipy
+  - scikit-image
+  - pyproj
+  - pyyaml
+  - pip
+  - pip:
+    - git+https://github.com/hectornieto/pyTSEB
+    - git+https://github.com/radosuav/pyDMS
