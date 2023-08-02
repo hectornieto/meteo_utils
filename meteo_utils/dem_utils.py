@@ -433,7 +433,7 @@ def non_occluded_terrain(dem_file, saa, sza, smooth_radius=1):
     # Smooth the occlusion map
     if smooth_radius > 0:
         se = morph.disk(smooth_radius)
-        non_shaded = morph.binary_closing(non_shaded, selem=se)
+        non_shaded = morph.binary_closing(non_shaded, footprint=se)
     return non_shaded
 
 
