@@ -197,7 +197,7 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                                                         elev_data + z_bh,
                                                         z_0=z + 2)
 
-        if field == "EA":
+        elif field == "EA":
             d2m, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "d2m",
                                                     beforeI, afterI, frac)
             elev_data = gu.raster_data(elev_file)
@@ -228,7 +228,7 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                                                        z_0=z + 2.0)
             data = calc_vapour_pressure(d2m)
 
-        if field == "U":
+        elif field == "U":
             u100, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "u100",
                                                      beforeI, afterI, frac)
             v100, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "v100",
@@ -246,7 +246,7 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                 # Calculate wind speed at blending height.
                 data = calc_windspeed_blending_height(ws100, z_0M, z_bh)
 
-        if field == "P":
+        elif field == "P":
             sp, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sp",
                                                    beforeI, afterI, frac)
             if "land" not in ecmwf_dataset:
@@ -290,13 +290,35 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
             sp = calc_pressure_height(sp, t0, elev_data, z_0=z)
             data = calc_pressure_mb(sp)
 
-        if field == "TCWV":
+        elif field == "TCWV":
             tcwv, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "tcwv",
                                                      beforeI, afterI, frac)
             data = calc_tcwv_cm(tcwv)
             data = _ECMWFRespampleData(data, gt, proj, template_file=sza_file)
 
-        if field == "SDN":
+        elif field == "TP":
+            data, gt, proj = _getECMWFTempInterpData(ecmwf_data_file,
+                                                     "tp",
+                                                     afterI, afterI, 1)
+            # Convert to mm
+            data = data * 1000
+            data = _ECMWFRespampleData(data, gt, proj, template_file=sza_file)
+
+        elif field == "LDN":
+            data, gt, proj = _getECMWFTempInterpData(ecmwf_data_file,
+                                                     "strd",
+                                                     afterI, afterI, 1)
+
+            # Convert cummulated value to instantaneous Wm-2
+            if "land" in ecmwf_dataset or "reanalysis" in ecmwf_dataset:
+                time_step = 1
+            else:
+                time_step = 3
+
+            data = data / (time_step * 3600.)
+            data = _ECMWFRespampleData(data, gt, proj, template_file=sza_file)
+
+        elif field == "SDN":
             sp, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sp",
                                                       beforeI, afterI, frac)
             sp = calc_pressure_mb(sp)
@@ -378,7 +400,7 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                                                        svf,
                                                        non_shaded=non_shaded)
 
-        if field == "AOT":
+        elif field == "AOT":
             if aod550_data_file is not None:
                 aod550File = netCDF4.Dataset(aod550_data_file)
                 time = aod550File.variables['time']
@@ -395,7 +417,7 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
 
             data = _ECMWFRespampleData(aod550, gt, proj, template_file=sza_file)
 
-        if field == "SDNday":
+        elif field == "SDNday":
             # Find midnight in local time and convert to UTC time
             date_local = (timedate_UTC + datetime.timedelta(
                 hours=time_zone)).date()
@@ -415,7 +437,7 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                                                      aotfile=aod550_data_file)
 
 
-        if field == "ETref":
+        elif field == "ETref":
             data = daily_reference_et(ecmwf_data_file,
                                       elev_file,
                                       timedate_UTC,
@@ -427,6 +449,16 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                                       z_t=2,
                                       ecmwf_dataset=ecmwf_dataset,
                                       aot_data_file=aod550_data_file)[0]
+
+        elif field == "TPday":
+            data, gt, proj = _get_cummulative_data(ecmwf_data_file,
+                                                   "tp",
+                                                   timedate_UTC,
+                                                   elev_file,
+                                                   time_window=24,
+                                                   dataset=ecmwf_dataset)
+            # Convert to mm
+            data = data * 1000
 
         output[field] = data
 
@@ -679,6 +711,87 @@ def _getECMWFIntegratedData(ncfile, var_name, date_time, elev_file,
 
     fid.close()
 
+    return cummulated_value, gt, proj
+
+
+def _get_cummulative_data(ncfile, var_name, date_time, elev_file,
+                          time_window=24,
+                          dataset='ERA5_reanalysis'):
+
+    # Open the netcdf time dataset
+    fid = netCDF4.Dataset(ncfile, 'r')
+    time = fid.variables['time']
+    dates = netCDF4.num2date(time[:], time.units, time.calendar)
+
+    if "ERA" in dataset:
+        hours_forecast_radiation = HOURS_FORECAST_INTERIM
+    else:
+        hours_forecast_radiation = HOURS_FORECAST_CAMS
+
+    # Get the time right before date_time, to ose it as integrated baseline
+    date_0, _, _ = _bracketing_dates(dates, date_time)
+    # Get the time right before the temporal witndow set
+    date_1, _, _ = _bracketing_dates(dates, date_time + datetime.timedelta(
+        hours=time_window))
+
+    proj, gt = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))[:2]
+    sr = osr.SpatialReference()
+    sr.ImportFromEPSG(4326)
+    proj = sr.ExportToWkt()
+
+    # Get the value of the begnning of the forecast as baseline reference for CAMS
+    # The accumulations in the short forecasts (from 06 and 18 UTC) of ERA5 are
+    # treated differently compared with those in ERA-Interim
+    # (where they are from the beginning of the forecast to the forecast step).
+    # In the short forecasts of ERA5 the accumulations are since the previous post processing
+    # (archiving)
+    # Read the right time layers
+    data_ref = fid.variables[var_name][:]
+    pos = [date_0]
+    if "expver" in fid.variables.keys():
+        for expver_pos, data_before in enumerate(data_ref[date_0]):
+            # Check and expver array is not empty
+            if np.any(np.isfinite(data_before)):
+                pos.append(expver_pos)
+                break
+
+    if dates[date_0].hour in hours_forecast_radiation \
+            or "reanalysis" in dataset \
+            or "ensemble" in dataset:
+        # The reference will be zero for the next forecast or always zero for ERA5
+        data_ref = 0
+    else:
+        # the reference is the cummulated value since the begining of the forecast in CAMS or ERA5-Land
+        for i in pos:
+            data_ref = data_ref[i, :]
+        data_ref[np.isnan(data_ref)] = 0
+
+    # Initialize output variable
+    cummulated_value = 0.
+    for date_i in range(date_0 + 1, date_1 + 1):
+        if "expver" in fid.variables.keys():
+            pos = [date_i, expver_pos]
+        else:
+            pos = [date_i]
+        # Read the right time layers
+        data = fid.variables[var_name][:]
+        for i in pos:
+            data = data[i, :]
+        data[np.isnan(data)] = 0
+        interval = (data - data_ref)
+        cummulated_value = cummulated_value + interval
+
+        if dates[date_i].hour in hours_forecast_radiation \
+                or "reanalysis" in dataset \
+                or "ensemble" in dataset:
+            # The reference will be zero for the next forecast or always zero for ERA5
+            data_ref = 0
+        else:
+            # the reference is the cummulated value since the begining of the forecast in CAMS
+            data_ref = data.copy()
+
+    cummulated_value = _ECMWFRespampleData(cummulated_value, gt, proj, elev_file)
+    fid.close()
     return cummulated_value, gt, proj
 
 
