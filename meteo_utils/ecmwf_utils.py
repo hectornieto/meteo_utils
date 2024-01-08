@@ -53,7 +53,6 @@ ECMWF_ZO_LUT = {1: ['Crops, mixed farming', 'L', 0.25, 0.25e-2],
                 19: ['Interrupted forest', 'H', 1.1, 1.1],
                 20: ['Water and land mixtures', 'L', '-', '-']}
 
-
 LOW_LC_TYPES = (1, 2, 7, 10, 11, 13, 16, 17)
 HIGH_LC_TYPES = (3, 4, 5, 6, 18, 19)
 
@@ -73,7 +72,12 @@ HOURS_FORECAST_INTERIM = (0, 26)
 ADS_CREDENTIALS_FILE = os.path.join(os.path.expanduser("~"),
                                     '.adsapirc')
 
-def download_CDS_data(dataset, product_type, date_start, date_end, variables,
+
+def download_CDS_data(dataset,
+                      product_type,
+                      date_start,
+                      date_end,
+                      variables,
                       target,
                       overwrite=False, area=None):
     s = {"variable": variables, "format": "netcdf"}
@@ -101,8 +105,12 @@ def download_CDS_data(dataset, product_type, date_start, date_end, variables,
 
 
 def download_ADS_data(dataset,
-                      date_start, date_end, variables, target,
-                      overwrite=False, area=None):
+                      date_start,
+                      date_end,
+                      variables,
+                      target,
+                      overwrite=False,
+                      area=None):
     with open(ADS_CREDENTIALS_FILE, 'r') as f:
         credentials = yaml.safe_load(f)
 
@@ -127,12 +135,19 @@ def download_ADS_data(dataset,
     print("Downloaded")
 
 
-def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
-                   elev_file, sza_file, z_bh,
-                   slope_file=None, aspect_file=None, svf_file=None,
-                   aod550_data_file=None, time_zone=0, ecmwf_dataset='CAMS_FC',
-                   output_folder=None):
-    print(ecmwf_data_file)
+def get_ECMWF_data(ecmwf_data_file,
+                   timedate_UTC,
+                   meteo_data_fields,
+                   elev_file,
+                   sza_file,
+                   z_bh,
+                   slope_file=None,
+                   aspect_file=None,
+                   svf_file=None,
+                   aod550_data_file=None,
+                   time_zone=0,
+                   ecmwf_dataset='CAMS_FC'):
+
     ncfile = netCDF4.Dataset(ecmwf_data_file, 'r')
     # Find the location of bracketing dates
     time = ncfile.variables['time']
@@ -177,22 +192,13 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                 z = outDs.GetRasterBand(1).ReadAsArray()
                 del outDs
 
-
-            d2m, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "d2m",
-                                                    beforeI, afterI, frac)
-
             sp, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sp",
                                                    beforeI, afterI, frac)
-            sp = calc_pressure_mb(sp)
-
             # Resample dataset and calculate actual blending height temperature based on input
             # elevation data
             z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
                                     resample_alg="bilinear")
-            sp = _ECMWFRespampleData(sp, gt, proj, template_file=elev_file)
             t2m = _ECMWFRespampleData(t2m, gt, proj, template_file=elev_file)
-            d2m = _ECMWFRespampleData(d2m, gt, proj, template_file=elev_file)
-
             data = calc_air_temperature_blending_height(t2m,
                                                         elev_data + z_bh,
                                                         z_0=z + 2)
@@ -250,7 +256,7 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
             sp, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sp",
                                                    beforeI, afterI, frac)
             if "land" not in ecmwf_dataset:
-               # Get geopotential height at which Ta is calculated
+                # Get geopotential height at which Ta is calculated
                 z, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "z",
                                                       beforeI,
                                                       afterI, frac)
@@ -271,18 +277,13 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                                   resampleAlg="average")
                 z = outDs.GetRasterBand(1).ReadAsArray()
                 z = _ECMWFRespampleData(z, gt, proj, template_file=sza_file,
-                                        resampleAlg="bilinear")
+                                        resample_alg="bilinear")
                 del outDs
 
             t0, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "t2m",
                                                    beforeI, afterI, frac)
 
-            t0 = _ECMWFRespampleData(t2m, gt, proj, template_file=sza_file)
-            ea, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "d2m",
-                                                   beforeI, afterI, frac)
-
-            ea = calc_vapour_pressure(ea)
-            ea = _ECMWFRespampleData(ea, gt, proj, template_file=sza_file)
+            t0 = _ECMWFRespampleData(t0, gt, proj, template_file=sza_file)
             # Convert pressure from pascals to mb
             elev_data = gu.raster_data(elev_file)
             sp = _ECMWFRespampleData(sp, gt, proj, template_file=sza_file)
@@ -319,51 +320,74 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
             data = _ECMWFRespampleData(data, gt, proj, template_file=sza_file)
 
         elif field == "SDN":
-            sp, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sp",
-                                                      beforeI, afterI, frac)
-            sp = calc_pressure_mb(sp)
-            sp = _ECMWFRespampleData(sp, gt, proj, elev_file)
             t, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "t2m",
-                                                     beforeI, afterI, frac)
+                                                  beforeI, afterI, frac)
             t = _ECMWFRespampleData(t, gt, proj, elev_file)
-            ea, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "d2m",
-                                                      beforeI, afterI, frac)
-            ea = calc_vapour_pressure(ea)
-            ea = _ECMWFRespampleData(ea, gt, proj, elev_file)
+            if "land" not in ecmwf_dataset:
+                # Get geopotential height at which Ta is calculated
+                z, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "z",
+                                                      beforeI,
+                                                      afterI, frac)
+                z /= GRAVITY
+                z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
+                                        resample_alg="bilinear")
+
+            else:
+                proj, _, _, _, extent, _ = gu.raster_info(
+                    'NETCDF:"' + ecmwf_data_file + '":t2m')
+                outDs = gdal.Warp("",
+                                  elev_file,
+                                  format="MEM",
+                                  dstSRS=proj,
+                                  xRes=gt[1],
+                                  yRes=gt[5],
+                                  outputBounds=extent,
+                                  resampleAlg="average")
+                z = outDs.GetRasterBand(1).ReadAsArray()
+                z = _ECMWFRespampleData(z, gt, proj, template_file=sza_file,
+                                        resampleAlg="bilinear")
+                del outDs
+
+            elev_data = gu.raster_data(elev_file)
+            sp, _, _ = _getECMWFTempInterpData(ecmwf_data_file, "sp",
+                                               beforeI, afterI, frac)
+            sp = _ECMWFRespampleData(sp, gt, proj, template_file=sza_file)
+            # Calcultate pressure at 0m datum height
+
+            sp = calc_pressure_height(sp, t, elev_data, z_0=z)
+            sp = calc_pressure_mb(sp)
             if "land" not in ecmwf_dataset:
                 tcwv, _, _ = _getECMWFTempInterpData(ecmwf_data_file, "tcwv",
-                                                        beforeI, afterI, frac)
+                                                     beforeI, afterI, frac)
                 tcwv = calc_tcwv_cm(tcwv)
                 tcwv = _ECMWFRespampleData(tcwv, gt, proj, elev_file)
 
             elif aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
-                tcwv, gtaot, projaot = _getECMWFTempInterpData(aod550_data_file,
-                                                                  "aod550", b, a, f)
+                tcwv, gtaot, projaot = _getECMWFTempInterpData(
+                    aod550_data_file,"aod550", b, a, f)
                 tcwv = calc_tcwv_cm(tcwv)
                 tcwv = _ECMWFRespampleData(tcwv, gtaot, projaot, elev_file)
             else:
                 tcwv = TCWV_MIDLATITUDE_SUMMER
 
             if aod550_data_file is not None:
-                aot550, gtaot, projaot = _getECMWFTempInterpData(aod550_data_file,
-                                                                 "aod550", b, a, f)
+                aot550, gtaot, projaot = _getECMWFTempInterpData(
+                    aod550_data_file,"aod550", b, a, f)
                 aot550 = _ECMWFRespampleData(aot550, gtaot, projaot, elev_file)
             else:
                 aot550 = RURAL_AOT_25KM
 
             doy = float(timedate_UTC.strftime("%j"))
             sza = gu.raster_data(sza_file)
-
-            z = gu.raster_data(elev_file)
-            data, beam_ratio = solar.calc_global_horizontal_radiance_clear_sky(doy,
-                                                                   sza,
-                                                                   aot550,
-                                                                   tcwv,
-                                                                   sp,
-                                                                   t,
-                                                                   altitude=z,
-                                                                   calc_diffuse=True)
+            eb, ed = solar.calc_global_horizontal_radiance_clear_sky(doy,
+                                                                     sza,
+                                                                     aot550,
+                                                                     tcwv,
+                                                                     sp,
+                                                                     t,
+                                                                     altitude=elev_data,
+                                                                     calc_diffuse=True)
 
             # Then correct for incidence solar angle on the tilted surface
             if slope_file is not None and aspect_file is not None:
@@ -388,8 +412,8 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
                 else:
                     svf = np.ones(slope.shape)
 
-                data = calc_radiance_tilted_surface_op(data * beam_ratio,
-                                                       data * (1 - beam_ratio),
+                data = calc_radiance_tilted_surface_op(eb,
+                                                       ed,
                                                        doy,
                                                        ftime,
                                                        lon_hr,
@@ -426,15 +450,15 @@ def get_ECMWF_data(ecmwf_data_file, timedate_UTC, meteo_data_fields,
             midnight_UTC = midnight_local - datetime.timedelta(hours=time_zone)
             # Interpolate solar irradiance over 24 hour period starting at midnight local time
             data, gt, proj = _getECMWFSolarData(ecmwf_data_file,
-                                                     "ssrd",
-                                                     midnight_UTC,
-                                                     elev_file,
-                                                     slope_file=slope_file,
-                                                     aspect_file=aspect_file,
-                                                     svf_file=svf_file,
-                                                     time_window=24,
-                                                     dataset=ecmwf_dataset,
-                                                     aotfile=aod550_data_file)
+                                                "ssrd",
+                                                midnight_UTC,
+                                                elev_file,
+                                                slope_file=slope_file,
+                                                aspect_file=aspect_file,
+                                                svf_file=svf_file,
+                                                time_window=24,
+                                                dataset=ecmwf_dataset,
+                                                aotfile=aod550_data_file)
 
 
         elif field == "ETref":
@@ -557,9 +581,13 @@ def calc_tcwv_cm(tcwv):
     return tcwv / 10.0
 
 
-def calc_solar_irradiance(aot_filename, tcwv_filename, p_filename, ta_filename,
-                          ea_filename, sza_filename, elev_filename):
-
+def calc_solar_irradiance(aot_filename,
+                          tcwv_filename,
+                          p_filename,
+                          ta_filename,
+                          ea_filename,
+                          sza_filename,
+                          elev_filename):
     # Get DOY from SZA filename
     match = re.search("S3_(\d{4})(\d{2})(\d{2})T\d{6}_.*\.tif", sza_filename)
     year = match.group(1)
@@ -583,7 +611,6 @@ def calc_solar_irradiance(aot_filename, tcwv_filename, p_filename, ta_filename,
 
 
 def _getECMWFTempInterpData(ncfile, var_name, before, after, f_time):
-
     # Get some metadata
     ds = gdal.Open('NETCDF:"' + ncfile + '":' + var_name)
     gt = ds.GetGeoTransform()
@@ -616,7 +643,8 @@ def _getECMWFTempInterpData(ncfile, var_name, before, after, f_time):
     return data, gt, proj
 
 
-def _ECMWFRespampleData(data, gt, proj, template_file, resample_alg="cubicspline"):
+def _ECMWFRespampleData(data, gt, proj, template_file,
+                        resample_alg="cubicspline"):
     # Subset and reproject to the template file extent and projection
     ds_out = gu.save_image(data, gt, proj, "MEM")
     ds_out_proj = gu.resample_with_gdalwarp(ds_out, template_file,
@@ -627,10 +655,12 @@ def _ECMWFRespampleData(data, gt, proj, template_file, resample_alg="cubicspline
     return data
 
 
-def _getECMWFIntegratedData(ncfile, var_name, date_time, elev_file,
+def _getECMWFIntegratedData(ncfile,
+                            var_name,
+                            date_time,
+                            elev_file,
                             time_window=24,
                             dataset='ERA5_reanalysis'):
-
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ncfile, 'r')
     time = fid.variables['time']
@@ -667,7 +697,6 @@ def _getECMWFIntegratedData(ncfile, var_name, date_time, elev_file,
             if np.any(np.isfinite(data_before)):
                 pos.append(expver_pos)
                 break
-
 
     if dates[date_0].hour in hours_forecast_radiation \
             or "reanalysis" in dataset \
@@ -714,10 +743,12 @@ def _getECMWFIntegratedData(ncfile, var_name, date_time, elev_file,
     return cummulated_value, gt, proj
 
 
-def _get_cummulative_data(ncfile, var_name, date_time, elev_file,
+def _get_cummulative_data(ncfile,
+                          var_name,
+                          date_time,
+                          elev_file,
                           time_window=24,
                           dataset='ERA5_reanalysis'):
-
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ncfile, 'r')
     time = fid.variables['time']
@@ -795,12 +826,16 @@ def _get_cummulative_data(ncfile, var_name, date_time, elev_file,
     return cummulated_value, gt, proj
 
 
-def _getECMWFSolarData(ncfile, var_name, date_time, elev_file,
-                            slope_file=None, aspect_file=None, svf_file=None,
-                            time_window=24,
-                            dataset='ERA5_reanalysis',
-                            aotfile=None):
-
+def _getECMWFSolarData(ncfile,
+                       var_name,
+                       date_time,
+                       elev_file,
+                       slope_file=None,
+                       aspect_file=None,
+                       svf_file=None,
+                       time_window=24,
+                       dataset='ERA5_reanalysis',
+                       aotfile=None):
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ncfile, 'r')
     time = fid.variables['time']
@@ -924,7 +959,7 @@ def _getECMWFSolarData(ncfile, var_name, date_time, elev_file,
                 _, _, sizeX, sizeY, extent, _ = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))
                 tempds = gu.save_image(tcwv, gtaot, projaot, "MEM")
                 tcwv = gdal.Warp("", tempds, format="MEM", xRes=gt[1], yRes=gt[5],
-                                   outputBounds=extent, resampleAlg="bilinear")
+                                 outputBounds=extent, resampleAlg="bilinear")
                 del tempds
                 tcwv = tcwv.GetRasterBand(1).ReadAsArray()
                 z_0, gtaot, projaot = _getECMWFTempInterpData(aotfile, "z", b, a, f)
@@ -932,7 +967,7 @@ def _getECMWFSolarData(ncfile, var_name, date_time, elev_file,
                 _, _, sizeX, sizeY, extent, _ = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))
                 tempds = gu.save_image(z_0, gtaot, projaot, "MEM")
                 z_0 = gdal.Warp("", tempds, format="MEM", xRes=gt[1], yRes=gt[5],
-                                   outputBounds=extent, resampleAlg="bilinear")
+                                outputBounds=extent, resampleAlg="bilinear")
                 del tempds
                 z_0 = z_0.GetRasterBand(1).ReadAsArray()
             else:
@@ -1020,7 +1055,6 @@ def daily_reference_et(ecmwf_data_file,
                        svf_file=None,
                        ecmwf_dataset='ERA5_reanalysis',
                        aot_data_file=None):
-
     # Find midnight in local time and convert to UTC time
     date_local = (timedate_UTC + datetime.timedelta(hours=time_zone)).date()
     midnight_local = datetime.datetime.combine(date_local, datetime.time())
@@ -1062,8 +1096,8 @@ def daily_reference_et(ecmwf_data_file,
         # Read the right time layers
         t_air = fid.variables["t2m"][:]
         td = fid.variables["d2m"][:]
-        u = fid.variables["u%i"%z_u][:]
-        v = fid.variables["v%i"%z_u][:]
+        u = fid.variables["u%i" % z_u][:]
+        v = fid.variables["v%i" % z_u][:]
 
         p = fid.variables["sp"][:]
 
@@ -1080,7 +1114,7 @@ def daily_reference_et(ecmwf_data_file,
             p = p[i]
         t_air, td, u, v, p = map(np.ma.filled,
                                  [t_air, td, u, v, p],
-                                 5 *[np.nan])
+                                 5 * [np.nan])
         ea = td.copy()
         ea[np.isfinite(ea)] = met.calc_vapor_pressure(ea[np.isfinite(ea)])
         valid = np.logical_and(np.isfinite(u), np.isfinite(v))
@@ -1108,7 +1142,6 @@ def daily_reference_et(ecmwf_data_file,
 
             del outDs
 
-
         # Calculate dew temperature and vapour pressure at elevation height
         z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
                                 resample_alg="bilinear")
@@ -1123,7 +1156,6 @@ def daily_reference_et(ecmwf_data_file,
         t_air = calc_air_temperature_blending_height(t_air, elev_data + z_t,
                                                      z_0=z + 2.0)
 
-
         # Calcultate pressure at elevation height
         ea = met.calc_vapor_pressure(td)
         p = calc_pressure_height(p, t_air, elev_data, z_0=z)
@@ -1137,15 +1169,15 @@ def daily_reference_et(ecmwf_data_file,
         u_array.append(u)
 
     sdn_mean, _, _ = _getECMWFSolarData(ecmwf_data_file,
-                                             "ssrd",
-                                             midnight_UTC,
-                                             elev_file,
-                                             slope_file=slope_file,
-                                             aspect_file=aspect_file,
-                                             svf_file=svf_file,
-                                             time_window=24,
-                                             dataset=ecmwf_dataset,
-                                             aotfile=aot_data_file)
+                                        "ssrd",
+                                        midnight_UTC,
+                                        elev_file,
+                                        slope_file=slope_file,
+                                        aspect_file=aspect_file,
+                                        svf_file=svf_file,
+                                        time_window=24,
+                                        dataset=ecmwf_dataset,
+                                        aotfile=aot_data_file)
 
     fid.close()
 
@@ -1172,12 +1204,23 @@ def daily_reference_et(ecmwf_data_file,
     return et_ref, t_min, t_max, sdn_mean, ea_mean, u_mean, p_mean
 
 
-def correct_solar_irradiance(doy, ftime, sza, sdn, z_0, press, t, ea, proj, gt, elev_file,
-                             tcwv=None, aot550=None,
-                             illum_f=None, saa=None, lon=None,
-                             svf=1,
-                             solar_constant=1367.7):
-
+def correct_solar_irradiance(doy,
+                             ftime,
+                             sza,
+                             sdn,
+                             z_0,
+                             press,
+                             t,
+                             ea,
+                             proj,
+                             gt,
+                             elev_file,
+                             tcwv=None,
+                             aot550=None,
+                             illum_f=None,
+                             saa=None,
+                             lon=None,
+                             svf=1):
     out_proj, out_gt = gu.raster_info(elev_file)[:2]
     if aot550 is None:
         aot550 = np.full(sza.shape, 0.2)
@@ -1187,7 +1230,7 @@ def correct_solar_irradiance(doy, ftime, sza, sdn, z_0, press, t, ea, proj, gt, 
     sdn_cs = solar.calc_global_horizontal_radiance_clear_sky(doy, sza, aot550,
                                                              tcwv, press, t,
                                                              altitude=z_0,
-                                                             solar_constant=solar_constant)
+                                                             calc_diffuse=False)
     sdn_cs = np.maximum(sdn_cs, 0.)
     # Cloudiness factor
     fci_cl = np.clip(sdn / sdn_cs, 0., 1)
@@ -1212,38 +1255,42 @@ def correct_solar_irradiance(doy, ftime, sza, sdn, z_0, press, t, ea, proj, gt, 
             saa = _ECMWFRespampleData(saa, gt, proj, elev_file, resample_alg="bilinear")
             lon = _ECMWFRespampleData(lon, gt, proj, elev_file, resample_alg="bilinear")
             calc_diffuse = True
-            sdn_cs, beam_ratio = solar.calc_global_horizontal_radiance_clear_sky(
-                                                     doy,
-                                                     sza[valid],
-                                                     aot550[valid],
-                                                     tcwv[valid],
-                                                     press[valid],
-                                                     t[valid],
-                                                     altitude=z_1[valid],
-                                                     solar_constant=solar_constant,
-                                                     calc_diffuse=calc_diffuse)
-            sdn_cs = np.maximum(sdn_cs, 0)
+            bdn_cs, ddn_cs = solar.calc_global_horizontal_radiance_clear_sky(
+                doy,
+                sza[valid],
+                aot550[valid],
+                tcwv[valid],
+                press[valid],
+                t[valid],
+                altitude=z_1[valid],
+                calc_diffuse=calc_diffuse)
+
+            bdn_cs = np.maximum(np.sum(bdn_cs, axis=0), 0)
+            ddn_cs = np.maximum(np.sum(ddn_cs, axis=0), 0)
+            sdn_cs = bdn_cs + ddn_cs
+            beam_ratio = bdn_cs / sdn_cs
             # Compute the diffuse fraction considering
             # the cloudiness and clear-sky beam ratio
             skyl = np.clip(1. - fci_cl[valid] * beam_ratio, 0, 1)
             bdn = sdn_cs * fci_cl[valid] * (1 - skyl)
             ddn = sdn_cs * fci_cl[valid] * skyl
-
-
             # First get areas with are not occluded by protuding terrain elements
             non_shaded = du.non_occluded_terrain(elev_file, saa, sza,
                                                  smooth_radius=1)
             # non_shaded = np.ones(lon.shape, dtype=bool)
             # Then correct for incidence solar angle on the tilted surface
-            sdn[valid] = calc_radiance_tilted_surface_op(bdn, ddn, doy, ftime,
-                                                         lon[valid],
-                                                         sza[valid],
-                                                         illum_f[0][valid],
-                                                         illum_f[1][valid],
-                                                         illum_f[2][valid],
-                                                         svf[valid],
-                                                         non_shaded=non_shaded[valid])
-
+            bdn, ddn = calc_radiance_tilted_surface_op(bdn,
+                                                       ddn,
+                                                       doy,
+                                                       ftime,
+                                                       lon[valid],
+                                                       sza[valid],
+                                                       illum_f[0][valid],
+                                                       illum_f[1][valid],
+                                                       illum_f[2][valid],
+                                                       svf[valid],
+                                                       non_shaded=non_shaded[valid])
+            sdn[valid] = bdn + ddn
         else:
             calc_diffuse = False
             sdn_cs = solar.calc_global_horizontal_radiance_clear_sky(doy,
@@ -1253,14 +1300,21 @@ def correct_solar_irradiance(doy, ftime, sza, sdn, z_0, press, t, ea, proj, gt, 
                                                                      press[valid],
                                                                      t[valid],
                                                                      altitude=z_1[valid],
-                                                                     solar_constant=solar_constant,
                                                                      calc_diffuse=calc_diffuse)
             sdn_cs = np.maximum(sdn_cs, 0)
             sdn[valid] = sdn_cs * fci_cl[valid]
     return sdn
 
 
-def calc_radiance_tilted_surface_op(bdn, ddn, doy, ftime, lon, sza, f1, f2, f3,
+def calc_radiance_tilted_surface_op(bdn,
+                                    ddn,
+                                    doy,
+                                    ftime,
+                                    lon,
+                                    sza,
+                                    f1,
+                                    f2,
+                                    f3,
                                     svf=1,
                                     non_shaded=None):
     """ Corrects both beam and diffuse radiation on illumination angle"""
@@ -1272,12 +1326,17 @@ def calc_radiance_tilted_surface_op(bdn, ddn, doy, ftime, lon, sza, f1, f2, f3,
     # The global solar radiation contains at least the diffuse part
     # We first consider occlusion effects in diffuse radiation
     # by using the sky-view factor variable
-    sdn = ddn * svf
+    ddn = ddn * svf
     if non_shaded is None:
         non_shaded = np.ones(bdn.shape, dtype=bool)
     non_shaded = np.logical_and(non_shaded, inc_ratio > 0)
-    sdn[non_shaded] = sdn[non_shaded] + bdn[non_shaded] * inc_ratio[non_shaded]
-    return sdn
+    if bdn.ndim != inc_ratio.ndim:  # Case when we use PAR and NIR arrays
+        bdn[:, non_shaded] = bdn[:, non_shaded] * inc_ratio[non_shaded]
+        bdn[:, ~non_shaded] = 0
+    else:
+        bdn[non_shaded] = bdn[non_shaded] * inc_ratio[non_shaded]
+        bdn[~non_shaded] = 0
+    return bdn, ddn
 
 
 def incidence_angle_tilted_optimized(doy, ftime, lon, f1, f2, f3, stdlon=0):
@@ -1351,6 +1410,4 @@ def iterception_calder(lai, rain, f_c=1, specific_storage=0.2, q=0.5):
     i_mm = max_storage * (1. - np.exp(-q * f_c * rain / max_storage))
 
     return i_mm
-
-
 

@@ -22,6 +22,7 @@ ADS_VARIABLES = ["total_aerosol_optical_depth_550nm"]
 
 DAILY_VARS = ["ETref", "SDNday"]
 
+
 def process_single_date(elev_input_file,
                         slope_input_file,
                         aspect_input_file,

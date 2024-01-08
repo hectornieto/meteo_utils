@@ -26,6 +26,7 @@ SAGA_CMD_PATH = "saga_cmd"
 # Process SRTM tiles so that they are of the same resolution, extent and projection as HR dataset
 # and derive slope and aspect.
 
+
 def srtm_dem(data_dir_dem, template_file, output_dem, srtm_nodata=-32762):
     # Find all SRTM tiles in the DEM directory, create virtual raster and the reproject,
     # resample and subset it based of the HR template.
@@ -424,6 +425,7 @@ def latlon_from_dem(dem_file_path, output=None):
     array = np.dstack([lat, lon])
     gu.save_image(array, gt, proj, output, no_data_value=np.nan)
     return lat, lon
+
 
 def non_occluded_terrain(dem_file, saa, sza, smooth_radius=1):
     # Get areas that are shaded by obstacles around
