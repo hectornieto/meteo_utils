@@ -484,6 +484,14 @@ def get_ECMWF_data(ecmwf_data_file,
             # Convert to mm
             data = data * 1000
 
+        elif field == "TAday":
+            data = mean_temperature(ecmwf_data_file,
+                                    elev_file,
+                                    timedate_UTC,
+                                    time_zone=time_zone,
+                                    z_t=2,
+                                    ecmwf_dataset=ecmwf_dataset)
+
         output[field] = data
 
     return output
@@ -1204,6 +1212,95 @@ def daily_reference_et(ecmwf_data_file,
     return et_ref, t_min, t_max, sdn_mean, ea_mean, u_mean, p_mean
 
 
+def mean_temperature(ecmwf_data_file,
+                     elev_file,
+                     timedate_UTC,
+                     time_zone=0,
+                     z_t=2,
+                     ecmwf_dataset='ERA5_reanalysis'):
+    # Find midnight in local time and convert to UTC time
+    date_local = (timedate_UTC + datetime.timedelta(hours=time_zone)).date()
+    midnight_local = datetime.datetime.combine(date_local, datetime.time())
+    midnight_UTC = midnight_local - datetime.timedelta(hours=time_zone)
+
+    # Open the netcdf time dataset
+    fid = netCDF4.Dataset(ecmwf_data_file, 'r')
+    time = fid.variables['time']
+    lat = fid.variables["latitude"][...]
+    lon = fid.variables["longitude"][...]
+    lon, lat = np.meshgrid(lon, lat, indexing='xy')
+    dates = netCDF4.num2date(time[:], time.units, time.calendar)
+
+    # Get the time right before date_time, to ose it as integrated baseline
+    date_0, _, _ = _bracketing_dates(dates, midnight_UTC)
+    if not date_0:
+        date_0 = 0
+    # Get the time right before the temporal witndow set
+    date_1, _, _ = _bracketing_dates(dates, midnight_UTC + datetime.timedelta(
+        hours=24))
+
+    elev_data = gu.raster_data(elev_file)
+    # Open air temperature dataset
+    t2m_fid = gdal.Open('NETCDF:"' + ecmwf_data_file + '":t2m')
+    gt = t2m_fid.GetGeoTransform()
+    sr = osr.SpatialReference()
+    sr.ImportFromEPSG(4326)
+    proj = sr.ExportToWkt()
+    del t2m_fid
+
+    # Initialize stack variables
+    t_max = np.full(elev_data.shape, -99999.)
+    t_min = np.full(elev_data.shape, 99999.)
+    for date_i in range(date_0 + 1, date_1 + 1):
+        # Read the right time layers
+        t_air = fid.variables["t2m"][:]
+        if "expver" in fid.variables.keys():
+            pos = [date_i, 0]
+        else:
+            pos = [date_i]
+        # Calcultate temperature at 0m datum height
+        for i in pos:
+            t_air = t_air[i]
+        t_air = np.ma.filled(t_air, np.nan)
+        if "land" not in ecmwf_dataset:
+            z = fid.variables["z"][:]
+            for i in pos:
+                z = z[i]
+            z /= GRAVITY
+        else:
+            _, _, _, _, extent, _ = gu.raster_info('NETCDF:"' + ecmwf_data_file + '":t2m')
+            outDs = gdal.Warp("",
+                              elev_file,
+                              format="MEM",
+                              dstSRS=proj,
+                              xRes=gt[1],
+                              yRes=gt[5],
+                              outputBounds=extent,
+                              resampleAlg="average")
+            z = outDs.GetRasterBand(1).ReadAsArray()
+            del outDs
+
+        # Calculate dew temperature and vapour pressure at elevation height
+        z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
+                                resample_alg="bilinear")
+        t_air = _ECMWFRespampleData(t_air, gt, proj, template_file=elev_file)
+
+        t_air = calc_air_temperature_blending_height(t_air, elev_data + z_t,
+                                                     z_0=z + 2.0)
+
+        # Avoid sprading possible NaNs
+        valid = np.isfinite(t_air)
+        t_max[valid] = np.maximum(t_max[valid], t_air[valid])
+        t_min[valid] = np.minimum(t_min[valid], t_air[valid])
+
+    t_max[t_max == -99999] = np.nan
+    t_min[t_min == 99999] = np.nan
+
+    # Compute daily mean
+    t_mean = 0.5 * (t_max + t_min)
+    return t_mean
+
+
 def correct_solar_irradiance(doy,
                              ftime,
                              sza,
@@ -1263,7 +1360,8 @@ def correct_solar_irradiance(doy,
                 press[valid],
                 t[valid],
                 altitude=z_1[valid],
-                calc_diffuse=calc_diffuse)
+                calc_diffuse=calc_diffuse,
+                method=solar.INEICHEN)
 
             bdn_cs = np.maximum(np.sum(bdn_cs, axis=0), 0)
             ddn_cs = np.maximum(np.sum(ddn_cs, axis=0), 0)
