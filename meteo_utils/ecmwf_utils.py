@@ -372,6 +372,7 @@ def get_ECMWF_data(ecmwf_data_file,
                 tcwv = TCWV_MIDLATITUDE_SUMMER
 
             if aod550_data_file is not None:
+                b, a, f = _bracketing_dates(datesaot, timedate_UTC)
                 aot550, gtaot, projaot = _getECMWFTempInterpData(
                     aod550_data_file,"aod550", b, a, f)
                 aot550 = _ECMWFRespampleData(aot550, gtaot, projaot, elev_file)
