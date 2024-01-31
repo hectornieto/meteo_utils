@@ -321,7 +321,8 @@ def beam_irradiance(sza,
                                     precipitable_water_cm=precipitable_water_cm,
                                     ozone_atm_cm=ozone_atm_cm,
                                     nitrogen_atm_cm=nitrogen_atm_cm)
-    return e_bn * np.cos(np.radians(sza))
+    e_bn = np.maximum(e_bn, 0)
+    return e_bn * np.maximum(np.cos(np.radians(sza)), 0)
 
 
 def direct_normal_irradiance(sza,
@@ -433,7 +434,7 @@ def diffuse_irradiance(sza,
     # Eq. 8 of [Gueymard_2008]_
     e_dpi = t_o * t_g * t_n * t_w * (b_r * (1 - t_ray) * t_a ** 0.25 +
                                    b_a * f * t_ray * (1 - t_as ** 0.25)) * e_on
-
+    e_dpi = np.maximum(e_dpi, 0)
     return e_dpi
 
 
@@ -473,6 +474,7 @@ def backscattered_diffuse_irradiance(e_b,
 
     rhos = sky_albedo(turbidity_alpha, aod)
     e_ddi = rhog * rhos * (e_b + e_dpi) / (1 - rhog * rhos)
+    e_ddi = np.maximum(e_ddi, 0)
     return e_ddi
 
 
