@@ -139,7 +139,6 @@ def get_ECMWF_data(ecmwf_data_file,
                    timedate_UTC,
                    meteo_data_fields,
                    elev_file,
-                   sza_file,
                    z_bh,
                    slope_file=None,
                    aspect_file=None,
@@ -276,17 +275,17 @@ def get_ECMWF_data(ecmwf_data_file,
                                   outputBounds=extent,
                                   resampleAlg="average")
                 z = outDs.GetRasterBand(1).ReadAsArray()
-                z = _ECMWFRespampleData(z, gt, proj, template_file=sza_file,
+                z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
                                         resample_alg="bilinear")
                 del outDs
 
             t0, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "t2m",
                                                    beforeI, afterI, frac)
 
-            t0 = _ECMWFRespampleData(t0, gt, proj, template_file=sza_file)
+            t0 = _ECMWFRespampleData(t0, gt, proj, template_file=elev_file)
             # Convert pressure from pascals to mb
             elev_data = gu.raster_data(elev_file)
-            sp = _ECMWFRespampleData(sp, gt, proj, template_file=sza_file)
+            sp = _ECMWFRespampleData(sp, gt, proj, template_file=elev_file)
             # Calcultate pressure at 0m datum height
             sp = calc_pressure_height(sp, t0, elev_data, z_0=z)
             data = calc_pressure_mb(sp)
@@ -295,7 +294,7 @@ def get_ECMWF_data(ecmwf_data_file,
             tcwv, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "tcwv",
                                                      beforeI, afterI, frac)
             data = calc_tcwv_cm(tcwv)
-            data = _ECMWFRespampleData(data, gt, proj, template_file=sza_file)
+            data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
         elif field == "TP":
             data, gt, proj = _getECMWFTempInterpData(ecmwf_data_file,
@@ -303,7 +302,7 @@ def get_ECMWF_data(ecmwf_data_file,
                                                      afterI, afterI, 1)
             # Convert to mm
             data = data * 1000
-            data = _ECMWFRespampleData(data, gt, proj, template_file=sza_file)
+            data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
         elif field == "LDN":
             data, gt, proj = _getECMWFTempInterpData(ecmwf_data_file,
@@ -317,7 +316,7 @@ def get_ECMWF_data(ecmwf_data_file,
                 time_step = 3
 
             data = data / (time_step * 3600.)
-            data = _ECMWFRespampleData(data, gt, proj, template_file=sza_file)
+            data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
         elif field == "SDN":
             t, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "t2m",
@@ -344,14 +343,14 @@ def get_ECMWF_data(ecmwf_data_file,
                                   outputBounds=extent,
                                   resampleAlg="average")
                 z = outDs.GetRasterBand(1).ReadAsArray()
-                z = _ECMWFRespampleData(z, gt, proj, template_file=sza_file,
+                z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
                                         resampleAlg="bilinear")
                 del outDs
 
             elev_data = gu.raster_data(elev_file)
             sp, _, _ = _getECMWFTempInterpData(ecmwf_data_file, "sp",
                                                beforeI, afterI, frac)
-            sp = _ECMWFRespampleData(sp, gt, proj, template_file=sza_file)
+            sp = _ECMWFRespampleData(sp, gt, proj, template_file=elev_file)
             # Calcultate pressure at 0m datum height
 
             sp = calc_pressure_height(sp, t, elev_data, z_0=z)
@@ -380,7 +379,7 @@ def get_ECMWF_data(ecmwf_data_file,
                 aot550 = RURAL_AOT_25KM
 
             doy = float(timedate_UTC.strftime("%j"))
-            sza = gu.raster_data(sza_file)
+            sza, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
             eb, ed = solar.calc_global_horizontal_radiance_clear_sky(doy,
                                                                      sza,
                                                                      aot550,
@@ -393,7 +392,7 @@ def get_ECMWF_data(ecmwf_data_file,
             # Then correct for incidence solar angle on the tilted surface
             if slope_file is not None and aspect_file is not None:
                 ftime = timedate_UTC.hour + timedate_UTC.minute / 60
-                _, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
+
                 saa = _ECMWFRespampleData(saa, gt, proj, elev_file,
                                           resample_alg="bilinear")
                 non_shaded = du.non_occluded_terrain(elev_file, saa, sza,
@@ -402,9 +401,11 @@ def get_ECMWF_data(ecmwf_data_file,
                 slope[slope < 0] = np.nan
                 aspect = gu.raster_data(aspect_file)
                 aspect[aspect < 0] = np.nan
-                lat_hr = _ECMWFRespampleData(lats, gt, proj, elev_file,
+                lat_hr = _ECMWFRespampleData(lats.data.astype(float),
+                                             gt, proj, elev_file,
                                              resample_alg="bilinear")
-                lon_hr = _ECMWFRespampleData(lons, gt, proj, elev_file,
+                lon_hr = _ECMWFRespampleData(lons.data.astype(float),
+                                             gt, proj, elev_file,
                                              resample_alg="bilinear")
                 illum_f = du.inclination_factors(lat_hr, slope, aspect)
                 if svf_file is not None:
@@ -440,7 +441,7 @@ def get_ECMWF_data(ecmwf_data_file,
                                                            "aod550", beforeI,
                                                            afterI, frac)
 
-            data = _ECMWFRespampleData(aod550, gt, proj, template_file=sza_file)
+            data = _ECMWFRespampleData(aod550, gt, proj, template_file=elev_file)
 
         elif field == "SDNday":
             # Find midnight in local time and convert to UTC time
@@ -880,7 +881,9 @@ def _getECMWFSolarData(ncfile,
         slope[slope < 0] = np.nan
         aspect = gu.raster_data(aspect_file)
         aspect[aspect < 0] = np.nan
-        lat_hr = _ECMWFRespampleData(lats, gt, proj, elev_file, resample_alg="bilinear")
+        lat_hr = _ECMWFRespampleData(lats.data.astype(float),
+                                     gt, proj, elev_file,
+                                     resample_alg="bilinear")
         illum_f = du.inclination_factors(lat_hr, slope, aspect)
         if svf_file is not None:
             svf = gu.raster_data(svf_file)
