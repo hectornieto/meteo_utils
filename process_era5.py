@@ -112,23 +112,6 @@ def process_single_date(elev_input_file,
                          area=area)
     print(f"Saved to file {ads_target}")
 
-    print("Computing Solar Zenith Angle")
-    lats, lons = du.latlon_from_dem(elev_input_file, output=None)
-    doy = float(date_obj.strftime("%j"))
-    sza = sun.calc_sun_angles(lats, lons, 0, doy, acq_time)[0]
-    sza_file = str(dst_folder / f"{date_int}T{acq_time}_SZA.tif")
-    driver = gdal.GetDriverByName("MEM")
-    dims = sza.shape
-    ds = driver.Create("MEM", dims[1], dims[0], 1, gdal.GDT_Float32)
-    ds.SetProjection(proj)
-    ds.SetGeoTransform(gt)
-    ds.GetRasterBand(1).WriteArray(sza)
-    del sza
-    driver_opt = ['COMPRESS=DEFLATE', 'PREDICTOR=1', 'BIGTIFF=IF_SAFER']
-    gdal.Translate(sza_file, ds, format="GTiff",
-                   creationOptions=driver_opt, stats=True)
-    del ds
-
     date_obj = date_obj + dt.timedelta(hours=acq_time)
     time_zone = sun.angle_average(extent_geo[0][0], extent_geo[1][0]) / 15.
     print(f"Processing ECMWF data for UTC time {date_obj}\n"
@@ -139,7 +122,6 @@ def process_single_date(elev_input_file,
                                date_obj,
                                meteo_data_fields,
                                elev_input_file,
-                               sza_file,
                                blending_height,
                                aod550_data_file=ads_target,
                                time_zone=time_zone,
