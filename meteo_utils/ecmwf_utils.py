@@ -158,6 +158,7 @@ def get_ECMWF_data(ecmwf_data_file,
     lat = ncfile.variables["latitude"]
     lon = ncfile.variables["longitude"]
     lons, lats = np.meshgrid(lon, lat)
+    lons, lats = lons.data.astype(float), lats.data.astype(float)
     ncfile.close()
 
     if aod550_data_file is not None:
@@ -401,10 +402,10 @@ def get_ECMWF_data(ecmwf_data_file,
                 slope[slope < 0] = np.nan
                 aspect = gu.raster_data(aspect_file)
                 aspect[aspect < 0] = np.nan
-                lat_hr = _ECMWFRespampleData(lats.data.astype(float),
+                lat_hr = _ECMWFRespampleData(lats,
                                              gt, proj, elev_file,
                                              resample_alg="bilinear")
-                lon_hr = _ECMWFRespampleData(lons.data.astype(float),
+                lon_hr = _ECMWFRespampleData(lons,
                                              gt, proj, elev_file,
                                              resample_alg="bilinear")
                 illum_f = du.inclination_factors(lat_hr, slope, aspect)
@@ -852,6 +853,7 @@ def _getECMWFSolarData(ncfile,
     lat = fid.variables["latitude"]
     lon = fid.variables["longitude"]
     lons, lats = np.meshgrid(lon, lat)
+    lons, lats = lons.data.astype(float), lats.data.astype(float)
     dates = netCDF4.num2date(time[:], time.units, time.calendar)
 
     if "land" in dataset or "reanalysis" in dataset:
@@ -881,7 +883,7 @@ def _getECMWFSolarData(ncfile,
         slope[slope < 0] = np.nan
         aspect = gu.raster_data(aspect_file)
         aspect[aspect < 0] = np.nan
-        lat_hr = _ECMWFRespampleData(lats.data.astype(float),
+        lat_hr = _ECMWFRespampleData(lats,
                                      gt, proj, elev_file,
                                      resample_alg="bilinear")
         illum_f = du.inclination_factors(lat_hr, slope, aspect)
@@ -1078,6 +1080,7 @@ def daily_reference_et(ecmwf_data_file,
     lat = fid.variables["latitude"][...]
     lon = fid.variables["longitude"][...]
     lon, lat = np.meshgrid(lon, lat, indexing='xy')
+    lon, lat = lon.data.astype(float), lat.data.astype(float)
     dates = netCDF4.num2date(time[:], time.units, time.calendar)
 
     # Get the time right before date_time, to ose it as integrated baseline
@@ -1230,9 +1233,6 @@ def mean_temperature(ecmwf_data_file,
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ecmwf_data_file, 'r')
     time = fid.variables['time']
-    lat = fid.variables["latitude"][...]
-    lon = fid.variables["longitude"][...]
-    lon, lat = np.meshgrid(lon, lat, indexing='xy')
     dates = netCDF4.num2date(time[:], time.units, time.calendar)
 
     # Get the time right before date_time, to ose it as integrated baseline
@@ -1365,8 +1365,7 @@ def correct_solar_irradiance(doy,
                 t[valid],
                 altitude=z_1[valid],
                 calc_diffuse=calc_diffuse,
-                method=solar.INEICHEN)
-
+                method=solar.REST2)
             bdn_cs = np.maximum(np.sum(bdn_cs, axis=0), 0)
             ddn_cs = np.maximum(np.sum(ddn_cs, axis=0), 0)
             sdn_cs = bdn_cs + ddn_cs
