@@ -146,7 +146,7 @@ def get_ECMWF_data(ecmwf_data_file,
                    aod550_data_file=None,
                    time_zone=0,
                    ecmwf_dataset='CAMS_FC'):
-    
+
     ftime = timedate_UTC.hour + timedate_UTC.minute / 60
     ncfile = netCDF4.Dataset(ecmwf_data_file, 'r')
     # Find the location of bracketing dates
@@ -382,6 +382,7 @@ def get_ECMWF_data(ecmwf_data_file,
 
             doy = float(timedate_UTC.strftime("%j"))
             sza, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
+            sza = _ECMWFRespampleData(sza, gt, proj, elev_file)
             eb, ed = solar.calc_global_horizontal_radiance_clear_sky(doy,
                                                                      sza,
                                                                      aot550,
