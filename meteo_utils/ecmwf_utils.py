@@ -146,7 +146,8 @@ def get_ECMWF_data(ecmwf_data_file,
                    aod550_data_file=None,
                    time_zone=0,
                    ecmwf_dataset='CAMS_FC'):
-
+    
+    ftime = timedate_UTC.hour + timedate_UTC.minute / 60
     ncfile = netCDF4.Dataset(ecmwf_data_file, 'r')
     # Find the location of bracketing dates
     time = ncfile.variables['time']
