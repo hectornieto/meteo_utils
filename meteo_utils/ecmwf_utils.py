@@ -150,7 +150,11 @@ def get_ECMWF_data(ecmwf_data_file,
     ftime = timedate_UTC.hour + timedate_UTC.minute / 60
     ncfile = netCDF4.Dataset(ecmwf_data_file, 'r')
     # Find the location of bracketing dates
-    time = ncfile.variables['time']
+    if "valid_time" in ncfile.variables.keys():
+        time_var = "valid_time"
+    else:
+        time_var = "time"
+    time = ncfile.variables[time_var]
     dates = netCDF4.num2date(time[:], time.units, time.calendar)
     beforeI, afterI, frac = _bracketing_dates(dates, timedate_UTC)
     if beforeI is None:
@@ -164,7 +168,12 @@ def get_ECMWF_data(ecmwf_data_file,
 
     if aod550_data_file is not None:
         ncfile = netCDF4.Dataset(aod550_data_file, 'r')
-        time = ncfile.variables['time']
+        # Find the location of bracketing dates
+        if "valid_time" in ncfile.variables.keys():
+            time_var = "valid_time"
+        else:
+            time_var = "time"
+        time = ncfile.variables[time_var]
         datesaot = netCDF4.num2date(time[:], time.units, time.calendar)
         del time
         ncfile.close()
@@ -432,7 +441,11 @@ def get_ECMWF_data(ecmwf_data_file,
         elif field == "AOT":
             if aod550_data_file is not None:
                 aod550File = netCDF4.Dataset(aod550_data_file)
-                time = aod550File.variables['time']
+                if "valid_time" in aod550File.variables.keys():
+                    time_var = "valid_time"
+                else:
+                    time_var = "time"
+                time = aod550File.variables[time_var]
                 dates = netCDF4.num2date(time[:], time.units, time.calendar)
                 b, a, f = _bracketing_dates(dates, timedate_UTC)
                 del time
@@ -676,7 +689,11 @@ def _getECMWFIntegratedData(ncfile,
                             dataset='ERA5_reanalysis'):
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ncfile, 'r')
-    time = fid.variables['time']
+    if "valid_time" in fid.variables.keys():
+        time_var = "valid_time"
+    else:
+        time_var = "time"
+    time = fid.variables[time_var]
     dates = netCDF4.num2date(time[:], time.units, time.calendar)
 
     if "ERA" in dataset:
@@ -764,7 +781,11 @@ def _get_cummulative_data(ncfile,
                           dataset='ERA5_reanalysis'):
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ncfile, 'r')
-    time = fid.variables['time']
+    if "valid_time" in fid.variables.keys():
+        time_var = "valid_time"
+    else:
+        time_var = "time"
+    time = fid.variables[time_var]
     dates = netCDF4.num2date(time[:], time.units, time.calendar)
 
     if "ERA" in dataset:
@@ -851,7 +872,11 @@ def _getECMWFSolarData(ncfile,
                        aotfile=None):
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ncfile, 'r')
-    time = fid.variables['time']
+    if "valid_time" in fid.variables.keys():
+        time_var = "valid_time"
+    else:
+        time_var = "time"
+    time = fid.variables[time_var]
     lat = fid.variables["latitude"]
     lon = fid.variables["longitude"]
     lons, lats = np.meshgrid(lon, lat)
@@ -927,7 +952,11 @@ def _getECMWFSolarData(ncfile,
 
     if aotfile is not None:
         fidaot = netCDF4.Dataset(aotfile, 'r')
-        timeaot = fidaot.variables['time']
+        if "valid_time" in fidaot.variables.keys():
+            time_var = "valid_time"
+        else:
+            time_var = "time"
+        timeaot = fidaot.variables[time_var]
         datesaot = netCDF4.num2date(timeaot[:], timeaot.units, timeaot.calendar)
         fidaot.close()
 
@@ -1078,7 +1107,11 @@ def daily_reference_et(ecmwf_data_file,
 
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ecmwf_data_file, 'r')
-    time = fid.variables['time']
+    if "valid_time" in fid.variables.keys():
+        time_var = "valid_time"
+    else:
+        time_var = "time"
+    time = fid.variables[time_var]
     lat = fid.variables["latitude"][...]
     lon = fid.variables["longitude"][...]
     lon, lat = np.meshgrid(lon, lat, indexing='xy')
@@ -1234,7 +1267,11 @@ def mean_temperature(ecmwf_data_file,
 
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ecmwf_data_file, 'r')
-    time = fid.variables['time']
+    if "valid_time" in fid.variables.keys():
+        time_var = "valid_time"
+    else:
+        time_var = "time"
+    time = fid.variables[time_var]
     dates = netCDF4.num2date(time[:], time.units, time.calendar)
 
     # Get the time right before date_time, to ose it as integrated baseline
