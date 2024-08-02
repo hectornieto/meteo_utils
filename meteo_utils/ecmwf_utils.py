@@ -655,11 +655,12 @@ def _getECMWFTempInterpData(ncfile, var_name, before, after, f_time):
     # Read the right time layers
     after_pos = [after]
     if "expver" in ds.variables.keys():
-        for expver_pos, data_before in enumerate(data_before_test):
-            # Check and expver array is not empty
-            if np.any(np.isfinite(data_before)):
-                after_pos.append(expver_pos)
-                break
+        if ds.variables["expver"].ndim > 1:
+            for expver_pos, data_before in enumerate(data_before_test):
+                # Check and expver array is not empty
+                if np.any(np.isfinite(data_before)):
+                    after_pos.append(expver_pos)
+                    break
     else:
         data_before = data_before_test.copy()
 
@@ -727,11 +728,12 @@ def _getECMWFIntegratedData(ncfile,
     data_ref = fid.variables[var_name][:]
     pos = [date_0]
     if "expver" in fid.variables.keys():
-        for expver_pos, data_before in enumerate(data_ref[date_0]):
-            # Check and expver array is not empty
-            if np.any(np.isfinite(data_before)):
-                pos.append(expver_pos)
-                break
+        if fid.variables["expver"].ndim > 1:
+            for expver_pos, data_before in enumerate(data_ref[date_0]):
+                # Check and expver array is not empty
+                if np.any(np.isfinite(data_before)):
+                    pos.append(expver_pos)
+                    break
 
     if dates[date_0].hour in hours_forecast_radiation \
             or "reanalysis" in dataset \
@@ -748,10 +750,11 @@ def _getECMWFIntegratedData(ncfile,
     # Initialize output variable
     cummulated_value = 0.
     for date_i in range(date_0 + 1, date_1 + 1):
+        pos = [date_i]
         if "expver" in fid.variables.keys():
-            pos = [date_i, expver_pos]
-        else:
-            pos = [date_i]
+            if fid.variables["expver"].ndim > 1:
+                pos = [date_i, expver_pos]
+
         # Read the right time layers
         data = fid.variables[var_name][:]
         for i in pos:
@@ -820,11 +823,12 @@ def _get_cummulative_data(ncfile,
     data_ref = fid.variables[var_name][:]
     pos = [date_0]
     if "expver" in fid.variables.keys():
-        for expver_pos, data_before in enumerate(data_ref[date_0]):
-            # Check and expver array is not empty
-            if np.any(np.isfinite(data_before)):
-                pos.append(expver_pos)
-                break
+        if fid.variables["expver"].ndim > 1:
+            for expver_pos, data_before in enumerate(data_ref[date_0]):
+                # Check and expver array is not empty
+                if np.any(np.isfinite(data_before)):
+                    pos.append(expver_pos)
+                    break
 
     if dates[date_0].hour in hours_forecast_radiation \
             or "reanalysis" in dataset \
@@ -840,10 +844,11 @@ def _get_cummulative_data(ncfile,
     # Initialize output variable
     cummulated_value = 0.
     for date_i in range(date_0 + 1, date_1 + 1):
+        pos = [date_i]
         if "expver" in fid.variables.keys():
-            pos = [date_i, expver_pos]
-        else:
-            pos = [date_i]
+            if fid.variables["expver"].ndim > 1:
+                pos = [date_i, expver_pos]
+
         # Read the right time layers
         data = fid.variables[var_name][:]
         for i in pos:
@@ -940,11 +945,12 @@ def _getECMWFSolarData(ncfile,
     data_ref = fid.variables[var_name][:]
     pos = [date_0]
     if "expver" in fid.variables.keys():
-        for expver_pos, data_before in enumerate(data_ref[date_0]):
-            # Check and expver array is not empty
-            if np.any(np.isfinite(data_before)):
-                pos.append(expver_pos)
-                break
+        if fid.variables["expver"].ndim > 1:
+            for expver_pos, data_before in enumerate(data_ref[date_0]):
+                # Check and expver array is not empty
+                if np.any(np.isfinite(data_before)):
+                    pos.append(expver_pos)
+                    break
 
     if dates[date_0].hour in hours_forecast_radiation \
             or "reanalysis" in dataset \
@@ -971,10 +977,11 @@ def _getECMWFSolarData(ncfile,
     # Initialize output variable
     cummulated_value = 0.
     for date_i in range(date_0 + 1, date_1 + 1):
+        pos = [date_i]
         if "expver" in fid.variables.keys():
-            pos = [date_i, expver_pos]
-        else:
-            pos = [date_i]
+            if fid.variables["expver"].ndim > 1:
+                pos = [date_i, expver_pos]
+
         # Read the right time layers
         data = fid.variables[var_name][:]
         for i in pos:
@@ -1156,13 +1163,12 @@ def daily_reference_et(ecmwf_data_file,
         td = fid.variables["d2m"][:]
         u = fid.variables["u%i" % z_u][:]
         v = fid.variables["v%i" % z_u][:]
-
         p = fid.variables["sp"][:]
-
+        pos = [date_i]
         if "expver" in fid.variables.keys():
-            pos = [date_i, 0]
-        else:
-            pos = [date_i]
+            if fid.variables["expver"].ndim > 1:
+                pos = [date_i, 0]
+
         # Calcultate temperature at 0m datum height
         for i in pos:
             t_air = t_air[i]
@@ -1306,10 +1312,11 @@ def mean_temperature(ecmwf_data_file,
     for date_i in range(date_0 + 1, date_1 + 1):
         # Read the right time layers
         t_air = fid.variables["t2m"][:]
+        pos = [date_i]
         if "expver" in fid.variables.keys():
-            pos = [date_i, 0]
-        else:
-            pos = [date_i]
+            if fid.variables["expver"].ndim > 1:
+                pos = [date_i, 0]
+
         # Calcultate temperature at 0m datum height
         for i in pos:
             t_air = t_air[i]
