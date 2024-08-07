@@ -654,6 +654,7 @@ def _getECMWFTempInterpData(ncfile, var_name, before, after, f_time):
     data_before_test = data_before_test[before, :]
     # Read the right time layers
     after_pos = [after]
+    data_before = data_before_test.copy()
     if "expver" in ds.variables.keys():
         if ds.variables["expver"].ndim > 1:
             for expver_pos, data_before in enumerate(data_before_test):
@@ -661,8 +662,6 @@ def _getECMWFTempInterpData(ncfile, var_name, before, after, f_time):
                 if np.any(np.isfinite(data_before)):
                     after_pos.append(expver_pos)
                     break
-    else:
-        data_before = data_before_test.copy()
 
     data_after = ds.variables[var_name][:]
     for i in after_pos:
