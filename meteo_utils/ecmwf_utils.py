@@ -5,7 +5,7 @@ Created on Tue Jul 17 14:47:50 2018
 @author: rmgu
 """
 
-import datetime
+import datetime as dt
 import os
 import re
 
@@ -147,7 +147,7 @@ def get_ECMWF_data(ecmwf_data_file,
                    time_zone=0,
                    ecmwf_dataset='CAMS_FC'):
 
-    timedate_UTC = timedate_UTC.replace(tzinfo=datetime.timezone.utc)
+    timedate_UTC = timedate_UTC.replace(tzinfo=dt.timezone.utc)
     ftime = timedate_UTC.hour + timedate_UTC.minute / 60
     ncfile = netCDF4.Dataset(ecmwf_data_file, 'r')
     # Find the location of bracketing dates
@@ -156,11 +156,12 @@ def get_ECMWF_data(ecmwf_data_file,
     else:
         time_var = "time"
     time = ncfile.variables[time_var]
-    dates = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
+    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
              for i in netCDF4.num2date(time[:], time.units, time.calendar)]
     beforeI, afterI, frac = _bracketing_dates(dates, timedate_UTC)
     if beforeI is None:
-        return False
+        return None
+
     del time
     lat = ncfile.variables["latitude"]
     lon = ncfile.variables["longitude"]
@@ -176,12 +177,12 @@ def get_ECMWF_data(ecmwf_data_file,
         else:
             time_var = "time"
         time = ncfile.variables[time_var]
-        datesaot = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
+        datesaot = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
                     for i in netCDF4.num2date(time[:], time.units, time.calendar)]
         del time
         ncfile.close()
 
-    output = {}
+    output = dict()
     for field in meteo_data_fields:
         if field == "TA":
             t2m, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "t2m",
@@ -449,8 +450,10 @@ def get_ECMWF_data(ecmwf_data_file,
                 else:
                     time_var = "time"
                 time = aod550File.variables[time_var]
-                dates = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
-                         for i in netCDF4.num2date(time[:], time.units, time.calendar)]
+                dates = [i._to_real_datetime().replace(
+                    tzinfo=dt.timezone.utc) for i in 
+                    netCDF4.num2date(
+                        time[:], time.units, time.calendar)]
                 b, a, f = _bracketing_dates(dates, timedate_UTC)
                 del time
                 aod550File.close()
@@ -465,11 +468,11 @@ def get_ECMWF_data(ecmwf_data_file,
 
         elif field == "SDNday":
             # Find midnight in local time and convert to UTC time
-            date_local = (timedate_UTC + datetime.timedelta(
+            date_local = (timedate_UTC + dt.timedelta(
                 hours=time_zone)).date()
-            midnight_local = datetime.datetime.combine(
-                date_local, datetime.time()).replace(tzinfo=datetime.timezone.utc)
-            midnight_UTC = midnight_local - datetime.timedelta(hours=time_zone)
+            midnight_local = dt.datetime.combine(
+                date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
+            midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
             # Interpolate solar irradiance over 24 hour period starting at midnight local time
             data, gt, proj = _getECMWFSolarData(ecmwf_data_file,
                                                 "ssrd",
@@ -623,7 +626,7 @@ def calc_solar_irradiance(aot_filename,
     year = match.group(1)
     month = match.group(2)
     day = match.group(3)
-    doy = datetime.date(int(year), int(month), int(day)).timetuple().tm_yday
+    doy = dt.date(int(year), int(month), int(day)).timetuple().tm_yday
 
     # Read input data
     sza = gu.raster_data(sza_filename)
@@ -698,7 +701,7 @@ def _getECMWFIntegratedData(ncfile,
     else:
         time_var = "time"
     time = fid.variables[time_var]
-    dates = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
+    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
              for i in netCDF4.num2date(time[:], time.units, time.calendar)]
 
     if "ERA" in dataset:
@@ -709,8 +712,8 @@ def _getECMWFIntegratedData(ncfile,
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, date_time)
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, date_time + datetime.timedelta(
-        hours=time_window))
+    date_1, _, _ = _bracketing_dates(dates, 
+            date_time + dt.timedelta(hours=time_window))
 
     proj, gt = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))[:2]
     sr = osr.SpatialReference()
@@ -793,7 +796,7 @@ def _get_cummulative_data(ncfile,
     else:
         time_var = "time"
     time = fid.variables[time_var]
-    dates = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
+    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
              for i in netCDF4.num2date(time[:], time.units, time.calendar)]
 
     if "ERA" in dataset:
@@ -804,8 +807,8 @@ def _get_cummulative_data(ncfile,
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, date_time)
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, date_time + datetime.timedelta(
-        hours=time_window))
+    date_1, _, _ = _bracketing_dates(dates, 
+            date_time + dt.timedelta(hours=time_window))
 
     proj, gt = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))[:2]
     sr = osr.SpatialReference()
@@ -891,7 +894,7 @@ def _getECMWFSolarData(ncfile,
     lon = fid.variables["longitude"]
     lons, lats = np.meshgrid(lon, lat)
     lons, lats = lons.data.astype(float), lats.data.astype(float)
-    dates = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
+    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
              for i in netCDF4.num2date(time[:], time.units, time.calendar)]
 
     if "land" in dataset or "reanalysis" in dataset:
@@ -907,8 +910,8 @@ def _getECMWFSolarData(ncfile,
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, date_time)
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, date_time + datetime.timedelta(
-        hours=time_window))
+    date_1, _, _ = _bracketing_dates(dates, 
+            date_time + dt.timedelta(hours=time_window))
 
     proj, gt = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))[:2]
     sr = osr.SpatialReference()
@@ -969,7 +972,7 @@ def _getECMWFSolarData(ncfile,
         else:
             time_var = "time"
         timeaot = fidaot.variables[time_var]
-        datesaot = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
+        datesaot = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
                     for i in netCDF4.num2date(timeaot[:], timeaot.units, timeaot.calendar)]
         fidaot.close()
 
@@ -1088,10 +1091,10 @@ def _getECMWFSolarData(ncfile,
 
 def _bracketing_dates(date_list, target_date):
     try:
-        before = max(
-            [x for x in date_list if (target_date - x).total_seconds() >= 0])
-        after = min(
-            [x for x in date_list if (target_date - x).total_seconds() <= 0])
+        before = max([x for x in date_list if (target_date - 
+            x.replace(tzinfo=dt.timezone.utc)).total_seconds() >= 0])
+        after = min([x for x in date_list if (target_date - 
+            x.replace(tzinfo=dt.timezone.utc)).total_seconds() <= 0])
     except ValueError:
         return None, None, np.nan
     if before == after:
@@ -1114,10 +1117,10 @@ def daily_reference_et(ecmwf_data_file,
                        ecmwf_dataset='ERA5_reanalysis',
                        aot_data_file=None):
     # Find midnight in local time and convert to UTC time
-    date_local = (timedate_UTC + datetime.timedelta(hours=time_zone)).date()
-    midnight_local = datetime.datetime.combine(
-        date_local, datetime.time()).replace(tzinfo=datetime.timezone.utc)
-    midnight_UTC = midnight_local - datetime.timedelta(hours=time_zone)
+    date_local = (timedate_UTC + dt.timedelta(hours=time_zone)).date()
+    midnight_local = dt.datetime.combine(
+        date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
+    midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ecmwf_data_file, 'r')
     if "valid_time" in fid.variables.keys():
@@ -1129,7 +1132,7 @@ def daily_reference_et(ecmwf_data_file,
     lon = fid.variables["longitude"][...]
     lon, lat = np.meshgrid(lon, lat, indexing='xy')
     lon, lat = lon.data.astype(float), lat.data.astype(float)
-    dates = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
+    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
              for i in netCDF4.num2date(time[:], time.units, time.calendar)]
 
     # Get the time right before date_time, to ose it as integrated baseline
@@ -1137,8 +1140,8 @@ def daily_reference_et(ecmwf_data_file,
     if not date_0:
         date_0 = 0
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, midnight_UTC + datetime.timedelta(
-        hours=24))
+    date_1, _, _ = _bracketing_dates(dates, 
+            midnight_UTC + dt.timedelta(hours=24))
 
     elev_data = gu.raster_data(elev_file)
     # Open air temperature dataset
@@ -1274,10 +1277,10 @@ def mean_temperature(ecmwf_data_file,
                      z_t=2,
                      ecmwf_dataset='ERA5_reanalysis'):
     # Find midnight in local time and convert to UTC time
-    date_local = (timedate_UTC + datetime.timedelta(hours=time_zone)).date()
-    midnight_local = datetime.datetime.combine(
-        date_local, datetime.time()).replace(tzinfo=datetime.timezone.utc)
-    midnight_UTC = midnight_local - datetime.timedelta(hours=time_zone)
+    date_local = (timedate_UTC + dt.timedelta(hours=time_zone)).date()
+    midnight_local = dt.datetime.combine(
+        date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
+    midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
 
     # Open the netcdf time dataset
     fid = netCDF4.Dataset(ecmwf_data_file, 'r')
@@ -1286,15 +1289,15 @@ def mean_temperature(ecmwf_data_file,
     else:
         time_var = "time"
     time = fid.variables[time_var]
-    dates = [i._to_real_datetime().replace(tzinfo=datetime.timezone.utc)
+    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
              for i in netCDF4.num2date(time[:], time.units, time.calendar)]
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, midnight_UTC)
     if not date_0:
         date_0 = 0
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, midnight_UTC + datetime.timedelta(
-        hours=24))
+    date_1, _, _ = _bracketing_dates(dates, 
+            midnight_UTC + dt.timedelta(hours=24))
 
     elev_data = gu.raster_data(elev_file)
     # Open air temperature dataset
