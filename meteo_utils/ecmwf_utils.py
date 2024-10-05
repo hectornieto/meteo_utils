@@ -500,9 +500,16 @@ def get_ECMWF_data(ecmwf_data_file,
                                       aot_data_file=aod550_data_file)[0]
 
         elif field == "TPday":
+            date_local = (timedate_UTC + 
+                    dt.timedelta(hours=time_zone)).date()
+            midnight_local = dt.datetime.combine(date_local, 
+                    dt.time()).replace(tzinfo=dt.timezone.utc)
+            midnight_UTC = midnight_local - \
+                    dt.timedelta(hours=time_zone)
+
             data, gt, proj = _get_cummulative_data(ecmwf_data_file,
                                                    "tp",
-                                                   timedate_UTC,
+                                                   midnight_UTC,
                                                    elev_file,
                                                    time_window=24,
                                                    dataset=ecmwf_dataset)
@@ -803,6 +810,7 @@ def _get_cummulative_data(ncfile,
         hours_forecast_radiation = HOURS_FORECAST_INTERIM
     else:
         hours_forecast_radiation = HOURS_FORECAST_CAMS
+    
 
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, date_time)
@@ -1091,11 +1099,20 @@ def _getECMWFSolarData(ncfile,
 
 def _bracketing_dates(date_list, target_date):
     try:
-        before = max([x for x in date_list if (target_date - 
-            x.replace(tzinfo=dt.timezone.utc)).total_seconds() >= 0])
-        after = min([x for x in date_list if (target_date - 
-            x.replace(tzinfo=dt.timezone.utc)).total_seconds() <= 0])
-    except ValueError:
+        before =[x for x in date_list if (target_date - x).total_seconds() >= 0]
+        if len(before) > 0:
+            before = max(before)
+        else:
+            before = date_list[0]
+        
+        after = [x for x in date_list if (target_date - x).total_seconds() <= 0]
+        if len(after) > 0:
+            after = min(after)
+        else:
+            after = date_list[-1]
+
+    except ValueError as e:
+        print(e)
         return None, None, np.nan
     if before == after:
         frac = 1
