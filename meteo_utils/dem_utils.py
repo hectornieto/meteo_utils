@@ -183,10 +183,6 @@ def incidence_angle_tilted(lat, lon, doy, ftime, stdlon=0, aspect=0, slope=0):
     # Hour angle is considered negative before noon, positive after noon
     omega = hour_angle(ftime, delta, lon, stdlon=stdlon)
 
-    # Convert remaining angles into radians,
-    # aspect is considered the azimuth from the South being westward positive
-    lat, aspect, slope = map(np.radians, [lat, aspect - 180, slope])
-
     f1, f2, f3 = inclination_factors(lat, slope, aspect)
 
     cos_delta = np.cos(delta)
