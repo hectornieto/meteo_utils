@@ -29,15 +29,10 @@ def read_file(filepath, root=PROJECT_ROOT):
 
 LONG_DESCRIPTION = read_file("README.md")
 SHORT_DESCRIPTION = "Modules for preparing meteorological inputs from EMCWF data."
-REQS = ['numpy>=1.10', 'gdal', 'netCDF4', 'cdsapi', "xarray", "pyyaml",
-        "scikit-image", "pyDMS", "pyTSEB"]
 
 setup(
     name                  = "meteo_utils",
     packages              = ['meteo_utils'],
-    dependency_links      = ['git+https://github.com/radosuav/pyDMS',
-                             'git+https://github.com/hectornieto/pyTSEB'],
-    install_requires      = REQS,
     version               = "1.0",
     author                = "Hector Nieto",
     author_email          = "hector.nieto@complutig.com",
