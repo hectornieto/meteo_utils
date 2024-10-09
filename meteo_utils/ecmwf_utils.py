@@ -80,7 +80,9 @@ def download_CDS_data(dataset,
                       variables,
                       target,
                       overwrite=False, area=None):
-    s = {"variable": variables, "format": "netcdf"}
+    s = {"variable": variables, 
+         "data_format": "netcdf", 
+         "download_format": "unarchived"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
     if area:
@@ -114,7 +116,9 @@ def download_ADS_data(dataset,
     with open(ADS_CREDENTIALS_FILE, 'r') as f:
         credentials = yaml.safe_load(f)
 
-    s = {"variable": variables, "format": "netcdf"}
+    s = {"variable": variables, 
+         "data_format": "netcdf", 
+         "download_format": "unarchived"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
 
