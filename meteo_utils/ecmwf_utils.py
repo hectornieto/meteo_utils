@@ -117,8 +117,7 @@ def download_ADS_data(dataset,
         credentials = yaml.safe_load(f)
 
     s = {"variable": variables, 
-         "data_format": "netcdf", 
-         "download_format": "unarchived"}
+         "data_format": "netcdf"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
 
