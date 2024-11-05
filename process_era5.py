@@ -1,4 +1,5 @@
 from pathlib import Path
+import numpy as np
 import datetime as dt
 from osgeo import gdal
 from pyproj import Proj
@@ -131,23 +132,56 @@ def process_single_date(elev_input_file,
                                svf_file=svf_input_file)
 
     out_dict = {}
+
     if dst_folder:
         for param, array in output.items():
             if param not in DAILY_VARS:
-                filename = f"{date_int}T{acq_time}_{param.upper()}.tif"
+                hour = int(np.floor(acq_time))
+                minute = int(60 * acq_time - hour)
+                acq_time_str = f"{hour:02}{minute:02}"
+                if param == "SDN":
+                    for i, var1 in enumerate(["DIR", "DIF"]):
+                        for j, var2 in enumerate(["PAR", "NIR"]):
+                            param = f"{var2}-{var1}"
+                            filename = f"{date_int}T{acq_time_str}_{param.upper()}.tif"
+                            dst_file = str(dst_folder / filename)
+                            print(f"Saving {param} to {dst_file}")
+                            driver = gdal.GetDriverByName("MEM")
+                            values = np.maximum(array[i][j], 0)
+                            dims = values.shape
+                            ds = driver.Create("MEM", dims[1], dims[0], 1, gdal.GDT_Float32)
+                            ds.SetProjection(proj)
+                            ds.SetGeoTransform(gt)
+                            ds.GetRasterBand(1).WriteArray(values)
+                            driver_opt = ['COMPRESS=DEFLATE', 'PREDICTOR=1', 'BIGTIFF=IF_SAFER']
+                            gdal.Translate(dst_file, ds, format="GTiff",
+                                       creationOptions=driver_opt, stats=True)
+                else:
+                    filename = f"{date_int}T{acq_time_str}_{param.upper()}.tif"
+                    dst_file = str(dst_folder / filename)
+                    print(f"Saving {param} to {dst_file}")
+                    driver = gdal.GetDriverByName("MEM")
+                    dims = array.shape
+                    ds = driver.Create("MEM", dims[1], dims[0], 1, gdal.GDT_Float32)
+                    ds.SetProjection(proj)
+                    ds.SetGeoTransform(gt)
+                    ds.GetRasterBand(1).WriteArray(array)
+                    driver_opt = ['COMPRESS=DEFLATE', 'PREDICTOR=1', 'BIGTIFF=IF_SAFER']
+                    gdal.Translate(dst_file, ds, format="GTiff",
+                                   creationOptions=driver_opt, stats=True)
             else:
                 filename = f"{date_int}_{param.upper()}.tif"
-            dst_file = str(dst_folder / filename)
-            print(f"Saving {param} to {dst_file}")
-            driver = gdal.GetDriverByName("MEM")
-            dims = array.shape
-            ds = driver.Create("MEM", dims[1], dims[0], 1, gdal.GDT_Float32)
-            ds.SetProjection(proj)
-            ds.SetGeoTransform(gt)
-            ds.GetRasterBand(1).WriteArray(array)
-            driver_opt = ['COMPRESS=DEFLATE', 'PREDICTOR=1', 'BIGTIFF=IF_SAFER']
-            gdal.Translate(dst_file, ds, format="GTiff",
-                           creationOptions=driver_opt, stats=True)
+                dst_file = str(dst_folder / filename)
+                print(f"Saving {param} to {dst_file}")
+                driver = gdal.GetDriverByName("MEM")
+                dims = array.shape
+                ds = driver.Create("MEM", dims[1], dims[0], 1, gdal.GDT_Float32)
+                ds.SetProjection(proj)
+                ds.SetGeoTransform(gt)
+                ds.GetRasterBand(1).WriteArray(array)
+                driver_opt = ['COMPRESS=DEFLATE', 'PREDICTOR=1', 'BIGTIFF=IF_SAFER']
+                gdal.Translate(dst_file, ds, format="GTiff",
+                               creationOptions=driver_opt, stats=True)
 
         del ds
 

@@ -20,7 +20,7 @@ Once registered, follow the next steps to configure the credentials for the proc
 1. Go to your *HOME* or *user* folder. 
   > In Linux/MacOS this folder is at `/home/your_user_name`. In windows it is usually at `C:\Users\your_user_name`.
 
-2. Login to Sthe [Climate Data Store](https://cds.climate.copernicus.eu/) with your ECMWF username and password, 
+2. Login to the [Climate Data Store](https://cds.climate.copernicus.eu/) with your ECMWF username and password, 
 then type the next URL address [https://cds.climate.copernicus.eu/how-to-api](https://cds.climate.copernicus.eu/how-to-api)
 
 3. Create a blank ASCII file in your *HOME* folder named `.cdsapirc` (please note the dot `.` at the beginning of the string),
