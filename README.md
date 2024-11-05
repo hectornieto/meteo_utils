@@ -14,9 +14,8 @@ conda env update -n <environment> -f environment.yml
 ## Requirements
 ### Registration at the Copernicus climate and atmoshperic data stores
 This plugin allows the automatic download and preprocessing of ERA5 meteorological data, provided by ECMWF.
-In order to properly work you should first register to the Copernicus' [Climate Data Store](https://cds.climate.copernicus.eu/user/register)
-and [Atmospheric Data Store](https://ads.atmosphere.copernicus.eu/user/register) systems.
-Once registered, follow the next steps to configure the credentials for the QGIS ET processor:
+In order to properly work you should first register to get an ECWMF account [here](https://accounts.ecmwf.int/auth/realms/ecmwf/login-actions/registration?client_id=cds&tab_id=uP8OQT6ER-E).
+Once registered, follow the next steps to configure the credentials for the processor:
 
 1. Go to your *HOME* or *user* folder. 
   > In Linux/MacOS this folder is at `/home/your_user_name`. In windows it is usually at `C:\Users\your_user_name`.
