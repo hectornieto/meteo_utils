@@ -3,12 +3,12 @@ import numpy as np
 import datetime as dt
 from osgeo import gdal
 from pyproj import Proj
-import cdsapi
-from meteo_utils import ecmwf_nrt_utils as eu
+
+from meteo_utils import ecmwf_utils as eu
 from meteo_utils import solar_irradiance as sun
 
 
-METEO_DATA_FIELDS = ["TA", "EA", "U", "P", "AOT", "TCWV", "SDN"]
+METEO_DATA_FIELDS = ["TA", "EA", "WS", "PA", "AOT", "TCWV", "SW-IN", "LW-IN"]
 ADS_VARIABLES = ['10m_u_component_of_wind', '10m_v_component_of_wind',
                  '2m_dewpoint_temperature', '2m_temperature',
                  'surface_pressure',
@@ -18,9 +18,9 @@ ADS_VARIABLES = ['10m_u_component_of_wind', '10m_v_component_of_wind',
                  'total_column_water_vapour',
                  "surface_geopotential",
                  "total_aerosol_optical_depth_550nm",
-                 "surface_roughness"]
+                 "forecast_surface_roughness"]
 
-DAILY_VARS = ["ETref", "SDNday"]
+DAILY_VARS = ["ETr", "SW-IN-DD"]
 
 
 def process_single_date(elev_input_file,
@@ -74,13 +74,13 @@ def process_single_date(elev_input_file,
     date_str = f"{date_ini.strftime('%Y-%m-%d')} / {date_end.strftime('%Y-%m-%d')}"
     # Area is North, West, South, East
     extent_geo = p(minx, maxy, inverse=True), p(maxx, miny, inverse=True)
-    area = f"{extent_geo[0][1] + 1} / {extent_geo[0][0] - 1} / " \
-           f"{extent_geo[1][1] - 1} / {extent_geo[1][0] + 1}"
+    area = [extent_geo[0][1] + 1, extent_geo[0][0] - 1,
+            extent_geo[1][1] - 1, extent_geo[1][0] + 1]
     print(f"Querying products for extent {area}\n"
           f"..and dates {date_obj - dt.timedelta(1)} to {date_obj + dt.timedelta(1)}")
 
     print(f"Downloading \"{', '.join(ADS_VARIABLES)}\" from the Copernicus Atmospheric Store")
-    ads_target = str(dst_folder / f"{date_int}_cams.nc")
+    ads_target = str(dst_folder / f"{date_int}_cams.grib")
     eu.download_ADS_data("cams-global-atmospheric-composition-forecasts",
                          date_obj - dt.timedelta(1),
                          date_obj + dt.timedelta(1),
@@ -95,17 +95,16 @@ def process_single_date(elev_input_file,
           "This may take some time...")
 
     meteo_data_fields = METEO_DATA_FIELDS + DAILY_VARS
-    output = eu.get_forecast_data(ads_target,
-                                  date_obj,
-                                  meteo_data_fields,
-                                  elev_input_file,
-                                  blending_height,
-                                  slope_input_file,
-                                  aspect_input_file,
-                                  svf_input_file,
-                                  time_zone=time_zone)
-
-    out_dict = {}
+    output = eu.get_ECMWF_data(ads_target,
+                               date_obj,
+                               meteo_data_fields,
+                               elev_input_file,
+                               blending_height,
+                               slope_input_file,
+                               aspect_input_file,
+                               svf_file=svf_input_file,
+                               time_zone=0,
+                               is_forecast=True)
 
     if dst_folder:
         for param, array in output.items():
@@ -113,7 +112,7 @@ def process_single_date(elev_input_file,
                 hour = int(np.floor(acq_time))
                 minute = int(60 * acq_time - hour)
                 acq_time_str = f"{hour:02}{minute:02}"
-                if param == "SDN":
+                if param == "SW-IN":
                     for i, var1 in enumerate(["DIR", "DIF"]):
                         for j, var2 in enumerate(["PAR", "NIR"]):
                             param = f"{var2}-{var1}"

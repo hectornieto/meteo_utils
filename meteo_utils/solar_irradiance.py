@@ -48,6 +48,7 @@ def calc_global_horizontal_radiance_clear_sky(doy,
                                                                  calc_diffuse=calc_diffuse)
         if calc_diffuse == True:
             sdn = sdn[0] * sdn[1], sdn[0] * (1 - sdn[1])
+
     return sdn
 
 

@@ -8,11 +8,13 @@ Created on Tue Jul 17 14:47:50 2018
 import datetime as dt
 import os
 import re
-
 import cdsapi
-import netCDF4
+import xarray as xr
+import rioxarray
+from cfgrib import xarray_store
 import numpy as np
-from osgeo import osr, gdal
+import pandas as pd
+from osgeo import gdal
 import yaml
 from pyTSEB import energy_combination_ET as pet
 from pyTSEB import meteo_utils as met
@@ -66,12 +68,18 @@ R_D = 287.04
 R_W = 461.5
 
 # Baseline hours for beginning of ECWMF integrated values
-HOURS_FORECAST_CAMS = (0, 12, 24)
-HOURS_FORECAST_INTERIM = (0, 26)
+HOURS_FORECAST_CAMS = (1, 13)
+HOURS_FORECAST_ERA5 = range(0, 25)
 
 ADS_CREDENTIALS_FILE = os.path.join(os.path.expanduser("~"),
                                     '.adsapirc')
 
+DEM_NANS = [-32768, -9999, -999]
+
+GRIB_KWARGS ={'engine': 'cfgrib',
+              'time_dims': ['valid_time'],
+              'ignore_keys': ['edition'],
+              'extra_coords': {'expver': 'valid_time'}}
 
 def download_CDS_data(dataset,
                       product_type,
@@ -79,9 +87,10 @@ def download_CDS_data(dataset,
                       date_end,
                       variables,
                       target,
-                      overwrite=False, area=None):
+                      overwrite=False,
+                      area=None):
     s = {"variable": variables, 
-         "data_format": "netcdf", 
+         "data_format": "grib",
          "download_format": "unarchived"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
@@ -117,14 +126,14 @@ def download_ADS_data(dataset,
         credentials = yaml.safe_load(f)
 
     s = {"variable": variables, 
-         "data_format": "netcdf"}
+         "data_format": "grib"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
 
     if dataset == "cams-global-atmospheric-composition-forecasts":
         s["type"] = "forecast"
         s['time'] = ['00:00', '12:00']
-        s['leadtime_hour'] = [str(i) for i in range(12)]
+        s['leadtime_hour'] = [str(i + 1) for i in range(12)]
     elif dataset == "cams-global-reanalysis-eac4":
         s["time"] = [str(t).zfill(2) + ":00" for t in range(0, 24, 3)]
 
@@ -143,57 +152,68 @@ def get_ECMWF_data(ecmwf_data_file,
                    meteo_data_fields,
                    elev_file,
                    z_bh,
-                   slope_file=None,
-                   aspect_file=None,
+                   slope_file,
+                   aspect_file,
                    svf_file=None,
                    aod550_data_file=None,
                    time_zone=0,
-                   ecmwf_dataset='CAMS_FC'):
+                   is_forecast=False):
 
     timedate_UTC = timedate_UTC.replace(tzinfo=dt.timezone.utc)
+    # Find midnight in local time and convert to UTC time
+    date_local = (timedate_UTC + dt.timedelta(
+        hours=time_zone)).date()
+    midnight_local = dt.datetime.combine(
+        date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
+    midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
+
     ftime = timedate_UTC.hour + timedate_UTC.minute / 60
-    ncfile = netCDF4.Dataset(ecmwf_data_file, 'r')
-    # Find the location of bracketing dates
-    if "valid_time" in ncfile.variables.keys():
-        time_var = "valid_time"
+    xds = xr.open_dataset(ecmwf_data_file, **GRIB_KWARGS)
+
+    xds.rio.write_crs(4326, inplace=True).rio.set_spatial_dims(
+        x_dim="longitude",
+        y_dim="latitude",
+        inplace=True).rio.write_coordinate_system(inplace=True)
+
+    if "valid_time" in xds.variables:
+        dates = xds["valid_time"].values
     else:
-        time_var = "time"
-    time = ncfile.variables[time_var]
-    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
-             for i in netCDF4.num2date(time[:], time.units, time.calendar)]
+        dates = xds["time"].values
     beforeI, afterI, frac = _bracketing_dates(dates, timedate_UTC)
     if beforeI is None:
         return None
 
-    del time
-    lat = ncfile.variables["latitude"]
-    lon = ncfile.variables["longitude"]
+    lat = xds["latitude"].values
+    lon = xds["longitude"].values
     lons, lats = np.meshgrid(lon, lat)
-    lons, lats = lons.data.astype(float), lats.data.astype(float)
-    ncfile.close()
+    lons, lats = lons.astype(float), lats.astype(float)
 
     if aod550_data_file is not None:
-        ncfile = netCDF4.Dataset(aod550_data_file, 'r')
-        # Find the location of bracketing dates
-        if "valid_time" in ncfile.variables.keys():
-            time_var = "valid_time"
+        ads = xr.open_dataset(aod550_data_file, **GRIB_KWARGS)
+        # Stack the forecast time dimensions
+        if is_forecast:
+            ads = ads.stack(dim=["forecast_reference_time", "forecast_period"])
+        ads.rio.write_crs(4326, inplace=True).rio.set_spatial_dims(
+            x_dim="longitude",
+            y_dim="latitude",
+            inplace=True).rio.write_coordinate_system(inplace=True)
+        if "valid_time" in ads.variables:
+            datesaot = ads["valid_time"].values
         else:
-            time_var = "time"
-        time = ncfile.variables[time_var]
-        datesaot = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
-                    for i in netCDF4.num2date(time[:], time.units, time.calendar)]
-        del time
-        ncfile.close()
+            datesaot = ads["time"].values
+    else:
+        ads = None
 
+    elev_data = gu.raster_data(elev_file).astype(float)
+    elev_data[np.isin(elev_data, DEM_NANS)] = np.nan
     output = dict()
     for field in meteo_data_fields:
         if field == "TA":
-            t2m, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "t2m",
+            t2m, gt, proj = _getECMWFTempInterpData(xds, "t2m",
                                                     beforeI, afterI, frac)
-            elev_data = gu.raster_data(elev_file)
-            if "land" not in ecmwf_dataset:
+            if "z" in xds.variables:
                 # Get geopotential height at which Ta is calculated
-                z, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "z", beforeI,
+                z, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI,
                                                       afterI, frac)
                 z /= GRAVITY
             else:
@@ -209,7 +229,7 @@ def get_ECMWF_data(ecmwf_data_file,
                 z = outDs.GetRasterBand(1).ReadAsArray()
                 del outDs
 
-            sp, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sp",
+            sp, gt, proj = _getECMWFTempInterpData(xds, "sp",
                                                    beforeI, afterI, frac)
             # Resample dataset and calculate actual blending height temperature based on input
             # elevation data
@@ -221,12 +241,11 @@ def get_ECMWF_data(ecmwf_data_file,
                                                         z_0=z + 2)
 
         elif field == "EA":
-            d2m, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "d2m",
+            d2m, gt, proj = _getECMWFTempInterpData(xds, "d2m",
                                                     beforeI, afterI, frac)
-            elev_data = gu.raster_data(elev_file)
-            if "land" not in ecmwf_dataset:
+            if "z" in xds.variables:
                 # Get geopotential height at which Ta is calculated
-                z, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "z", beforeI,
+                z, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI,
                                                       afterI, frac)
                 z /= GRAVITY
             else:
@@ -251,32 +270,50 @@ def get_ECMWF_data(ecmwf_data_file,
                                                        z_0=z + 2.0)
             data = calc_vapour_pressure(d2m)
 
-        elif field == "U":
-            u100, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "u100",
-                                                     beforeI, afterI, frac)
-            v100, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "v100",
-                                                     beforeI, afterI, frac)
-            # Combine the two components of wind speed and calculate speed at blending height
-            ws100 = calc_wind_speed(u100, v100)
-            if z_bh == 100:
-                data = _ECMWFRespampleData(ws100, gt, proj, template_file=elev_file)
+        elif field == "WS":
+            if "u100" in xds.variables and "v100" in xds.variables:
+                u100, gt, proj = _getECMWFTempInterpData(xds, "u100",
+                                                         beforeI, afterI, frac)
+                v100, gt, proj = _getECMWFTempInterpData(xds, "v100",
+                                                         beforeI, afterI, frac)
+                # Combine the two components of wind speed and calculate speed at blending height
+                ws = calc_wind_speed(u100, v100)
+                z_u = 100
             else:
-                ws100 = _ECMWFRespampleData(ws100, gt, proj, template_file=elev_file)
-                z_0M, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "fsr",
-                                                         beforeI, afterI,
-                                                         frac)
-                z_0M = _ECMWFRespampleData(z_0M, gt, proj, template_file=elev_file)
-                # Calculate wind speed at blending height.
-                data = calc_windspeed_blending_height(ws100, z_0M, z_bh)
+                u10, gt, proj = _getECMWFTempInterpData(xds, "u10",
+                                                         beforeI, afterI, frac)
+                v10, gt, proj = _getECMWFTempInterpData(xds, "v10",
+                                                         beforeI, afterI, frac)
+                # Combine the two components of wind speed and calculate speed at blending height
+                ws = calc_wind_speed(u10, v10)
+                z_u = 10
+            if z_bh == z_u:
+                data = _ECMWFRespampleData(ws, gt, proj, template_file=elev_file)
+            else:
+                ws = _ECMWFRespampleData(ws, gt, proj, template_file=elev_file)
+                if "sr" in xds.variables:
+                    z_0M, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sr",
+                                                             beforeI, afterI,
+                                                             frac)
+                    z_0M = _ECMWFRespampleData(z_0M, gt, proj, template_file=elev_file)
+                elif "fsr" in xds.variables:
+                    z_0M, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "fsr",
+                                                             beforeI, afterI,
+                                                             frac)
+                    z_0M = _ECMWFRespampleData(z_0M, gt, proj, template_file=elev_file)
 
-        elif field == "P":
-            sp, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sp",
+                else:
+                    z_0M = np.full_like(ws, 0.25)
+                # Calculate wind speed at blending height.
+                data = calc_windspeed_blending_height(ws, z_0M, z_bh)
+
+        elif field == "PA":
+            sp, gt, proj = _getECMWFTempInterpData(xds, "sp",
                                                    beforeI, afterI, frac)
-            if "land" not in ecmwf_dataset:
+            if "z" in xds.variables:
                 # Get geopotential height at which Ta is calculated
-                z, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "z",
-                                                      beforeI,
-                                                      afterI, frac)
+                z, gt, proj = _getECMWFTempInterpData(xds,
+                                                      "z",beforeI, afterI, frac)
                 z /= GRAVITY
                 z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
                                         resample_alg="bilinear")
@@ -297,52 +334,58 @@ def get_ECMWF_data(ecmwf_data_file,
                                         resample_alg="bilinear")
                 del outDs
 
-            t0, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "t2m",
+            t0, gt, proj = _getECMWFTempInterpData(xds, "t2m",
                                                    beforeI, afterI, frac)
 
             t0 = _ECMWFRespampleData(t0, gt, proj, template_file=elev_file)
             # Convert pressure from pascals to mb
-            elev_data = gu.raster_data(elev_file)
             sp = _ECMWFRespampleData(sp, gt, proj, template_file=elev_file)
             # Calcultate pressure at 0m datum height
             sp = calc_pressure_height(sp, t0, elev_data, z_0=z)
             data = calc_pressure_mb(sp)
 
         elif field == "TCWV":
-            tcwv, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "tcwv",
+            tcwv, gt, proj = _getECMWFTempInterpData(xds, "tcwv",
                                                      beforeI, afterI, frac)
             data = calc_tcwv_cm(tcwv)
             data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
         elif field == "TP":
-            data, gt, proj = _getECMWFTempInterpData(ecmwf_data_file,
-                                                     "tp",
-                                                     afterI, afterI, 1)
-            # Convert to mm
+            before, after, frac = _bracketing_dates(dates, timedate_UTC)
+            if is_forecast:
+                if timedate_UTC.hour in HOURS_FORECAST_CAMS:
+                    ref_hour = -1
+                else:
+                    ref_hour = after - 1
+            else:
+                ref_hour = -1
+            data, gt, proj = _get_ECMWF_cummulative_data(
+                xds, "strd", ref_hour, after)
             data = data * 1000
             data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
-        elif field == "LDN":
-            data, gt, proj = _getECMWFTempInterpData(ecmwf_data_file,
-                                                     "strd",
-                                                     afterI, afterI, 1)
-
-            # Convert cummulated value to instantaneous Wm-2
-            if "land" in ecmwf_dataset or "reanalysis" in ecmwf_dataset:
-                time_step = 1
+        elif field == "LW-IN":
+            before, after, frac = _bracketing_dates(dates, timedate_UTC)
+            if is_forecast:
+                if timedate_UTC.hour in HOURS_FORECAST_CAMS:
+                    ref_hour = -1
+                else:
+                    ref_hour = after - 1
             else:
-                time_step = 3
+                ref_hour = -1
+            data, gt, proj = _get_ECMWF_cummulative_data(
+                xds, "strd", ref_hour, after)
 
-            data = data / (time_step * 3600.)
+            data = data / 3600.
             data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
-        elif field == "SDN":
-            t, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "t2m",
+        elif field == "SW-IN":
+            t, gt, proj = _getECMWFTempInterpData(xds, "t2m",
                                                   beforeI, afterI, frac)
             t = _ECMWFRespampleData(t, gt, proj, elev_file)
-            if "land" not in ecmwf_dataset:
+            if "z" in xds.variables:
                 # Get geopotential height at which Ta is calculated
-                z, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "z",
+                z, gt, proj = _getECMWFTempInterpData(xds, "z",
                                                       beforeI,
                                                       afterI, frac)
                 z /= GRAVITY
@@ -365,36 +408,38 @@ def get_ECMWF_data(ecmwf_data_file,
                                         resampleAlg="bilinear")
                 del outDs
 
-            elev_data = gu.raster_data(elev_file)
-            sp, _, _ = _getECMWFTempInterpData(ecmwf_data_file, "sp",
+            sp, _, _ = _getECMWFTempInterpData(xds, "sp",
                                                beforeI, afterI, frac)
             sp = _ECMWFRespampleData(sp, gt, proj, template_file=elev_file)
             # Calcultate pressure at 0m datum height
-
             sp = calc_pressure_height(sp, t, elev_data, z_0=z)
             sp = calc_pressure_mb(sp)
-            if "land" not in ecmwf_dataset:
-                tcwv, _, _ = _getECMWFTempInterpData(ecmwf_data_file, "tcwv",
+            if "tcwv" in xds.variables:
+                tcwv, _, _ = _getECMWFTempInterpData(xds, "tcwv",
                                                      beforeI, afterI, frac)
                 tcwv = calc_tcwv_cm(tcwv)
                 tcwv = _ECMWFRespampleData(tcwv, gt, proj, elev_file)
 
             elif aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
-                tcwv, gtaot, projaot = _getECMWFTempInterpData(
-                    aod550_data_file,"aod550", b, a, f)
+                tcwv, gtaot, projaot = _getECMWFTempInterpData(ads,
+                                                               "tcwv", b, a, f)
                 tcwv = calc_tcwv_cm(tcwv)
                 tcwv = _ECMWFRespampleData(tcwv, gtaot, projaot, elev_file)
             else:
-                tcwv = TCWV_MIDLATITUDE_SUMMER
+                tcwv = np.full_like(sza, TCWV_MIDLATITUDE_SUMMER)
 
-            if aod550_data_file is not None:
+            if "aod550" in xds.variables:
+                aot550, gtaot, projaot = _getECMWFTempInterpData(
+                    xds,"aod550", beforeI, afterI, frac)
+                aot550 = _ECMWFRespampleData(aot550, gtaot, projaot, elev_file)
+            elif aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
                 aot550, gtaot, projaot = _getECMWFTempInterpData(
-                    aod550_data_file,"aod550", b, a, f)
+                    ads, "aod550", b, a, f)
                 aot550 = _ECMWFRespampleData(aot550, gtaot, projaot, elev_file)
             else:
-                aot550 = RURAL_AOT_25KM
+                aot550 = np.full_like(sza, RURAL_AOT_25KM)
 
             doy = float(timedate_UTC.strftime("%j"))
             sza, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
@@ -408,124 +453,93 @@ def get_ECMWF_data(ecmwf_data_file,
                                                                      altitude=elev_data,
                                                                      calc_diffuse=True)
 
-            # Then correct for incidence solar angle on the tilted surface
-            if slope_file is not None and aspect_file is not None:
-                ftime = timedate_UTC.hour + timedate_UTC.minute / 60
+            saa = _ECMWFRespampleData(saa, gt, proj, elev_file,
+                                      resample_alg="bilinear")
+            non_shaded = du.non_occluded_terrain(elev_file, saa, sza,
+                                                 smooth_radius=1)
+            slope = gu.raster_data(slope_file)
+            slope[slope < 0] = np.nan
+            aspect = gu.raster_data(aspect_file)
+            aspect[aspect < 0] = np.nan
+            lat_hr = _ECMWFRespampleData(lats,
+                                         gt, proj, elev_file,
+                                         resample_alg="bilinear")
+            lon_hr = _ECMWFRespampleData(lons,
+                                         gt, proj, elev_file,
+                                         resample_alg="bilinear")
+            illum_f = du.inclination_factors(lat_hr, slope, aspect)
+            if svf_file is not None:
+                svf = gu.raster_data(svf_file)
+                svf[svf < 0] = np.nan
+            else:
+                svf = np.ones(slope.shape)
 
-                saa = _ECMWFRespampleData(saa, gt, proj, elev_file,
-                                          resample_alg="bilinear")
-                non_shaded = du.non_occluded_terrain(elev_file, saa, sza,
-                                                     smooth_radius=1)
-                slope = gu.raster_data(slope_file)
-                slope[slope < 0] = np.nan
-                aspect = gu.raster_data(aspect_file)
-                aspect[aspect < 0] = np.nan
-                lat_hr = _ECMWFRespampleData(lats,
-                                             gt, proj, elev_file,
-                                             resample_alg="bilinear")
-                lon_hr = _ECMWFRespampleData(lons,
-                                             gt, proj, elev_file,
-                                             resample_alg="bilinear")
-                illum_f = du.inclination_factors(lat_hr, slope, aspect)
-                if svf_file is not None:
-                    svf = gu.raster_data(svf_file)
-                    svf[svf < 0] = np.nan
-                else:
-                    svf = np.ones(slope.shape)
-
-                data = calc_radiance_tilted_surface_op(eb,
-                                                       ed,
-                                                       doy,
-                                                       ftime,
-                                                       lon_hr,
-                                                       sza,
-                                                       illum_f[0],
-                                                       illum_f[1],
-                                                       illum_f[2],
-                                                       svf,
-                                                       non_shaded=non_shaded)
+            data = calc_radiance_tilted_surface_op(eb,
+                                                   ed,
+                                                   doy,
+                                                   ftime,
+                                                   lon_hr,
+                                                   sza,
+                                                   illum_f[0],
+                                                   illum_f[1],
+                                                   illum_f[2],
+                                                   svf,
+                                                   non_shaded=non_shaded)
 
         elif field == "AOT":
             if aod550_data_file is not None:
-                aod550File = netCDF4.Dataset(aod550_data_file)
-                if "valid_time" in aod550File.variables.keys():
-                    time_var = "valid_time"
-                else:
-                    time_var = "time"
-                time = aod550File.variables[time_var]
-                dates = [i._to_real_datetime().replace(
-                    tzinfo=dt.timezone.utc) for i in 
-                    netCDF4.num2date(
-                        time[:], time.units, time.calendar)]
-                b, a, f = _bracketing_dates(dates, timedate_UTC)
-                del time
-                aod550File.close()
-                aod550, gt, proj = _getECMWFTempInterpData(aod550_data_file,
+                b, a, f = _bracketing_dates(datesaot, timedate_UTC)
+                aod550, gt, proj = _getECMWFTempInterpData(ads,
                                                            "aod550", b, a, f)
             else:
-                aod550, gt, proj = _getECMWFTempInterpData(ecmwf_data_file,
+                aod550, gt, proj = _getECMWFTempInterpData(xds,
                                                            "aod550", beforeI,
                                                            afterI, frac)
 
             data = _ECMWFRespampleData(aod550, gt, proj, template_file=elev_file)
 
-        elif field == "SDNday":
-            # Find midnight in local time and convert to UTC time
-            date_local = (timedate_UTC + dt.timedelta(
-                hours=time_zone)).date()
-            midnight_local = dt.datetime.combine(
-                date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
-            midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
+        elif field == "SW-IN-DD":
             # Interpolate solar irradiance over 24 hour period starting at midnight local time
-            data, gt, proj = _getECMWFSolarData(ecmwf_data_file,
-                                                "ssrd",
+            data, gt, proj = _getECMWFSolarData(xds,
                                                 midnight_UTC,
                                                 elev_file,
-                                                slope_file=slope_file,
-                                                aspect_file=aspect_file,
+                                                slope_file,
+                                                aspect_file,
                                                 svf_file=svf_file,
                                                 time_window=24,
-                                                dataset=ecmwf_dataset,
-                                                aotfile=aod550_data_file)
+                                                is_forecast=is_forecast,
+                                                aot_ds=ads)
 
 
-        elif field == "ETref":
-            data = daily_reference_et(ecmwf_data_file,
-                                      elev_file,
+        elif field == "ETr":
+            data = daily_reference_et(xds,
                                       timedate_UTC,
-                                      slope_file=slope_file,
-                                      aspect_file=aspect_file,
+                                      elev_file,
+                                      slope_file,
+                                      aspect_file,
                                       svf_file=svf_file,
                                       time_zone=time_zone,
                                       z_u=10,
                                       z_t=2,
-                                      ecmwf_dataset=ecmwf_dataset,
-                                      aot_data_file=aod550_data_file)[0]
+                                      is_forecast=is_forecast,
+                                      aot_ds=ads)[0]
 
-        elif field == "TPday":
-            date_local = (timedate_UTC + 
-                    dt.timedelta(hours=time_zone)).date()
-            midnight_local = dt.datetime.combine(date_local, 
-                    dt.time()).replace(tzinfo=dt.timezone.utc)
-            midnight_UTC = midnight_local - \
-                    dt.timedelta(hours=time_zone)
-
+        elif field == "TP-DD":
             data, gt, proj = _get_cummulative_data(ecmwf_data_file,
                                                    "tp",
                                                    midnight_UTC,
                                                    elev_file,
                                                    time_window=24,
-                                                   dataset=ecmwf_dataset)
+                                                   is_forecast=is_forecast)
             # Convert to mm
             data = data * 1000
 
-        elif field == "TAday":
-            data = mean_temperature(ecmwf_data_file,
+        elif field == "TA-DD":
+            data = mean_temperature(xds,
                                     elev_file,
                                     timedate_UTC,
                                     time_zone=time_zone,
-                                    z_t=2,
-                                    ecmwf_dataset=ecmwf_dataset)
+                                    z_t=2)
 
         output[field] = data
 
@@ -592,13 +606,14 @@ def calc_wind_speed(u, v):
     return ws
 
 
-def calc_windspeed_blending_height(u10, z_0M, z_bh=100.0):
+def calc_windspeed_blending_height(ws_z, z_0M=0.25, z=10, z_bh=100.0):
     '''Calculates the windspeed at blending height
 
     Parameters
     ----------
-    u10 : 10m windspeed (m s-1)
+    ws_z : windspeed measured at zm (m s-1)
     z_0M : aerodynamic roughness lenght for momentum (m)
+    z : Measrurement height of wind speed
     z_bh : blending height (m) default=100
 
     Returns
@@ -609,7 +624,7 @@ def calc_windspeed_blending_height(u10, z_0M, z_bh=100.0):
     ----------
     based on Allen 2007 eq 31'''
 
-    u_blend = u10 * np.log(z_bh / z_0M) / np.log(10.0 / z_0M)
+    u_blend = ws_z * np.log(z_bh / z_0M) / np.log(z / z_0M)
     return u_blend
 
 
@@ -653,37 +668,28 @@ def calc_solar_irradiance(aot_filename,
     return sdn
 
 
-def _getECMWFTempInterpData(ncfile, var_name, before, after, f_time):
+def _getECMWFTempInterpData(ds, var_name, before, after, f_time):
     # Get some metadata
-    ds = gdal.Open('NETCDF:"' + ncfile + '":' + var_name)
-    gt = ds.GetGeoTransform()
-    del ds
-    sr = osr.SpatialReference()
-    sr.ImportFromEPSG(4326)
-    proj = sr.ExportToWkt()
-    ds = netCDF4.Dataset(ncfile)
-
-    data_before_test = ds.variables[var_name][:]
-    data_before_test = data_before_test[before, :]
-    # Read the right time layers
-    after_pos = [after]
-    data_before = data_before_test.copy()
-    if "expver" in ds.variables.keys():
-        if ds.variables["expver"].ndim > 1:
-            for expver_pos, data_before in enumerate(data_before_test):
-                # Check and expver array is not empty
-                if np.any(np.isfinite(data_before)):
-                    after_pos.append(expver_pos)
-                    break
-
-    data_after = ds.variables[var_name][:]
-    for i in after_pos:
-        data_after = data_after[i, :]
-    ds.close()
+    gt, proj = _get_gdal_params(ds, var_name)
+    data_before = ds[var_name][before]
+    data_after = ds[var_name][after]
     # Perform temporal interpolation
     data = data_before * f_time + data_after * (1.0 - f_time)
 
-    return data, gt, proj
+    return data.values, gt, proj
+
+def _get_ECMWF_cummulative_data(ds,var_name, before, after):
+    # Get some metadata
+    gt, proj = _get_gdal_params(ds, var_name)
+    if before == -1:
+        data_before = 0
+    else:
+        data_before = ds[var_name][before]
+    data_after = ds[var_name][after]
+    # Perform temporal interpolation
+    data = data_after - data_before
+
+    return data.values, gt, proj
 
 
 def _ECMWFRespampleData(data, gt, proj, template_file,
@@ -698,181 +704,47 @@ def _ECMWFRespampleData(data, gt, proj, template_file,
     return data
 
 
-def _getECMWFIntegratedData(ncfile,
-                            var_name,
-                            date_time,
-                            elev_file,
-                            time_window=24,
-                            dataset='ERA5_reanalysis'):
-    # Open the netcdf time dataset
-    fid = netCDF4.Dataset(ncfile, 'r')
-    if "valid_time" in fid.variables.keys():
-        time_var = "valid_time"
-    else:
-        time_var = "time"
-    time = fid.variables[time_var]
-    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
-             for i in netCDF4.num2date(time[:], time.units, time.calendar)]
-
-    if "ERA" in dataset:
-        hours_forecast_radiation = HOURS_FORECAST_INTERIM
-    else:
-        hours_forecast_radiation = HOURS_FORECAST_CAMS
-
-    # Get the time right before date_time, to ose it as integrated baseline
-    date_0, _, _ = _bracketing_dates(dates, date_time)
-    # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, 
-            date_time + dt.timedelta(hours=time_window))
-
-    proj, gt = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))[:2]
-    sr = osr.SpatialReference()
-    sr.ImportFromEPSG(4326)
-    proj = sr.ExportToWkt()
-
-    # Get the value of the begnning of the forecast as baseline reference for CAMS
-    # The accumulations in the short forecasts (from 06 and 18 UTC) of ERA5 are
-    # treated differently compared with those in ERA-Interim
-    # (where they are from the beginning of the forecast to the forecast step).
-    # In the short forecasts of ERA5 the accumulations are since the previous post processing
-    # (archiving)
-    # Read the right time layers
-    data_ref = fid.variables[var_name][:]
-    pos = [date_0]
-    if "expver" in fid.variables.keys():
-        if fid.variables["expver"].ndim > 1:
-            for expver_pos, data_before in enumerate(data_ref[date_0]):
-                # Check and expver array is not empty
-                if np.any(np.isfinite(data_before)):
-                    pos.append(expver_pos)
-                    break
-
-    if dates[date_0].hour in hours_forecast_radiation \
-            or "reanalysis" in dataset \
-            or "ensemble" in dataset:
-        # The reference will be zero for the next forecast or always zero for ERA5
-        data_ref = 0
-    else:
-        # the reference is the cummulated value since the begining of the forecast in CAMS or ERA5-Land
-        for i in pos:
-            data_ref = data_ref[i, :]
-        data_ref[np.isnan(data_ref)] = 0
-        data_ref[data_ref < 0] = 0
-
-    # Initialize output variable
-    cummulated_value = 0.
-    for date_i in range(date_0 + 1, date_1 + 1):
-        pos = [date_i]
-        if "expver" in fid.variables.keys():
-            if fid.variables["expver"].ndim > 1:
-                pos = [date_i, expver_pos]
-
-        # Read the right time layers
-        data = fid.variables[var_name][:]
-        for i in pos:
-            data = data[i, :]
-        data[np.isnan(data)] = 0
-        data[data < 0] = 0
-        hourly = (data - data_ref)
-
-        hourly = _ECMWFRespampleData(hourly, gt, proj, elev_file, resample_alg="bilinear")
-
-        cummulated_value += hourly
-
-        if dates[date_i].hour in hours_forecast_radiation \
-                or "reanalysis" in dataset \
-                or "ensemble" in dataset:
-            # The reference will be zero for the next forecast or always zero for ERA5
-            data_ref = 0
-        else:
-            # the reference is the cummulated value since the begining of the forecast in CAMS
-            data_ref = data.copy()
-
-    fid.close()
-
-    return cummulated_value, gt, proj
-
-
-def _get_cummulative_data(ncfile,
+def _get_cummulative_data(xds,
                           var_name,
                           date_time,
                           elev_file,
                           time_window=24,
-                          dataset='ERA5_reanalysis'):
-    # Open the netcdf time dataset
-    fid = netCDF4.Dataset(ncfile, 'r')
-    if "valid_time" in fid.variables.keys():
-        time_var = "valid_time"
-    else:
-        time_var = "time"
-    time = fid.variables[time_var]
-    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
-             for i in netCDF4.num2date(time[:], time.units, time.calendar)]
+                          is_forecast=True):
 
-    if "ERA" in dataset:
-        hours_forecast_radiation = HOURS_FORECAST_INTERIM
+    date_time = np.datetime64(date_time)
+    if "valid_time" in xds.variables:
+        dates = xds["valid_time"].values
     else:
-        hours_forecast_radiation = HOURS_FORECAST_CAMS
-    
-
+        dates = xds["time"].values
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, date_time)
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, 
+    date_1, _, _ = _bracketing_dates(dates,
             date_time + dt.timedelta(hours=time_window))
 
-    proj, gt = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))[:2]
-    sr = osr.SpatialReference()
-    sr.ImportFromEPSG(4326)
-    proj = sr.ExportToWkt()
+    gt, proj = _get_gdal_params(xds, var_name)
 
-    # Get the value of the begnning of the forecast as baseline reference for CAMS
-    # The accumulations in the short forecasts (from 06 and 18 UTC) of ERA5 are
-    # treated differently compared with those in ERA-Interim
-    # (where they are from the beginning of the forecast to the forecast step).
-    # In the short forecasts of ERA5 the accumulations are since the previous post processing
-    # (archiving)
-    # Read the right time layers
-    data_ref = fid.variables[var_name][:]
-    pos = [date_0]
-    if "expver" in fid.variables.keys():
-        if fid.variables["expver"].ndim > 1:
-            for expver_pos, data_before in enumerate(data_ref[date_0]):
-                # Check and expver array is not empty
-                if np.any(np.isfinite(data_before)):
-                    pos.append(expver_pos)
-                    break
+    if is_forecast:
+        hours_forecast_radiation = HOURS_FORECAST_CAMS
+    else:
+        hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if dates[date_0].hour in hours_forecast_radiation \
-            or "reanalysis" in dataset \
-            or "ensemble" in dataset:
+    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation :
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0
     else:
-        # the reference is the cummulated value since the begining of the forecast in CAMS or ERA5-Land
-        for i in pos:
-            data_ref = data_ref[i, :]
+        data_ref = xds[var_name][date_0].values - xds[var_name][date_0 - 1].values
         data_ref[np.isnan(data_ref)] = 0
 
     # Initialize output variable
     cummulated_value = 0.
     for date_i in range(date_0 + 1, date_1 + 1):
-        pos = [date_i]
-        if "expver" in fid.variables.keys():
-            if fid.variables["expver"].ndim > 1:
-                pos = [date_i, expver_pos]
-
         # Read the right time layers
-        data = fid.variables[var_name][:]
-        for i in pos:
-            data = data[i, :]
+        data = xds[var_name][date_i].values
         data[np.isnan(data)] = 0
         interval = (data - data_ref)
         cummulated_value = cummulated_value + interval
-
-        if dates[date_i].hour in hours_forecast_radiation \
-                or "reanalysis" in dataset \
-                or "ensemble" in dataset:
+        if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation:
             # The reference will be zero for the next forecast or always zero for ERA5
             data_ref = 0
         else:
@@ -880,186 +752,108 @@ def _get_cummulative_data(ncfile,
             data_ref = data.copy()
 
     cummulated_value = _ECMWFRespampleData(cummulated_value, gt, proj, elev_file)
-    fid.close()
     return cummulated_value, gt, proj
 
 
-def _getECMWFSolarData(ncfile,
-                       var_name,
+def _getECMWFSolarData(xds,
                        date_time,
                        elev_file,
-                       slope_file=None,
-                       aspect_file=None,
+                       slope_file,
+                       aspect_file,
                        svf_file=None,
                        time_window=24,
-                       dataset='ERA5_reanalysis',
-                       aotfile=None):
+                       is_forecast=False,
+                       aot_ds=None):
+
     # Open the netcdf time dataset
-    fid = netCDF4.Dataset(ncfile, 'r')
-    if "valid_time" in fid.variables.keys():
-        time_var = "valid_time"
+    if "valid_time" in xds.variables:
+        dates = xds["valid_time"].values
     else:
-        time_var = "time"
-    time = fid.variables[time_var]
-    lat = fid.variables["latitude"]
-    lon = fid.variables["longitude"]
+        dates = xds["time"].values
+    if not isinstance(aot_ds, type(None)):
+        datesaot = aot_ds["valid_time"].values
+
+    lat = xds["latitude"].values
+    lon = xds["longitude"].values
     lons, lats = np.meshgrid(lon, lat)
-    lons, lats = lons.data.astype(float), lats.data.astype(float)
-    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
-             for i in netCDF4.num2date(time[:], time.units, time.calendar)]
-
-    if "land" in dataset or "reanalysis" in dataset:
-        time_step = 1
-    else:
-        time_step = 3
-
-    if "ERA" in dataset:
-        hours_forecast_radiation = HOURS_FORECAST_INTERIM
-    else:
-        hours_forecast_radiation = HOURS_FORECAST_CAMS
+    lons, lats = lons.astype(float), lats.astype(float)
 
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, date_time)
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, 
+    date_1, _, _ = _bracketing_dates(dates,
             date_time + dt.timedelta(hours=time_window))
 
-    proj, gt = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))[:2]
-    sr = osr.SpatialReference()
-    sr.ImportFromEPSG(4326)
-    proj = sr.ExportToWkt()
+    gt, proj = _get_gdal_params(xds, "ssrd")
 
     # Read slope and aspect for optional correcion for illumination over tilted surfaces
-    if slope_file is not None and aspect_file is not None:
-        slope = gu.raster_data(slope_file)
-        slope[slope < 0] = np.nan
-        aspect = gu.raster_data(aspect_file)
-        aspect[aspect < 0] = np.nan
-        lat_hr = _ECMWFRespampleData(lats,
-                                     gt, proj, elev_file,
-                                     resample_alg="bilinear")
-        illum_f = du.inclination_factors(lat_hr, slope, aspect)
-        if svf_file is not None:
-            svf = gu.raster_data(svf_file)
-            svf[svf < 0] = np.nan
-        else:
-            svf = np.ones(slope.shape)
+    slope = gu.raster_data(slope_file)
+    slope[slope < 0] = np.nan
+    aspect = gu.raster_data(aspect_file)
+    aspect[aspect < 0] = np.nan
+    lat_hr = _ECMWFRespampleData(lats,
+                                 gt, proj, elev_file,
+                                 resample_alg="bilinear")
+    illum_f = du.inclination_factors(lat_hr, slope, aspect)
+    if svf_file is not None:
+        svf = gu.raster_data(svf_file)
+        svf[svf < 0] = np.nan
     else:
-        illum_f = None
-        svf = None
+        svf = np.ones(slope.shape)
 
-    # Get the value of the begnning of the forecast as baseline reference for CAMS
-    # The accumulations in the short forecasts (from 06 and 18 UTC) of ERA5 are
-    # treated differently compared with those in ERA-Interim
-    # (where they are from the beginning of the forecast to the forecast step).
-    # In the short forecasts of ERA5 the accumulations are since the previous post processing
-    # (archiving)
-    # Read the right time layers
-    data_ref = fid.variables[var_name][:]
-    pos = [date_0]
-    if "expver" in fid.variables.keys():
-        if fid.variables["expver"].ndim > 1:
-            for expver_pos, data_before in enumerate(data_ref[date_0]):
-                # Check and expver array is not empty
-                if np.any(np.isfinite(data_before)):
-                    pos.append(expver_pos)
-                    break
+    if is_forecast:
+        hours_forecast_radiation = HOURS_FORECAST_CAMS
+    else:
+        hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if dates[date_0].hour in hours_forecast_radiation \
-            or "reanalysis" in dataset \
-            or "ensemble" in dataset:
+    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation :
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0
     else:
-        # the reference is the cummulated value since the begining of the forecast in CAMS or ERA5-Land
-        for i in pos:
-            data_ref = data_ref[i, :]
+        data_ref = xds["ssrd"][date_0].values - xds["ssrd"][date_0 - 1].values
         data_ref[np.isnan(data_ref)] = 0
-
-    if aotfile is not None:
-        fidaot = netCDF4.Dataset(aotfile, 'r')
-        if "valid_time" in fidaot.variables.keys():
-            time_var = "valid_time"
-        else:
-            time_var = "time"
-        timeaot = fidaot.variables[time_var]
-        datesaot = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
-                    for i in netCDF4.num2date(timeaot[:], timeaot.units, timeaot.calendar)]
-        fidaot.close()
 
     # Initialize output variable
     cummulated_value = 0.
     for date_i in range(date_0 + 1, date_1 + 1):
-        pos = [date_i]
-        if "expver" in fid.variables.keys():
-            if fid.variables["expver"].ndim > 1:
-                pos = [date_i, expver_pos]
-
+        date = pd.to_datetime(dates[date_i])
         # Read the right time layers
-        data = fid.variables[var_name][:]
-        for i in pos:
-            data = data[i, :]
+        data = xds["ssrd"][date_i].values
         data[np.isnan(data)] = 0
-        ftime = dates[date_i].hour + dates[date_i].minute / 60
-        doy = float(dates[date_i].strftime("%j"))
+        sdn = np.absolute(data - data_ref)
+        ftime = date.hour + date.minute / 60
+        doy = date.day_of_year
         sza, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
         sza = np.clip(sza, 0., 90.)
-        sdn = (data - data_ref)
         if np.any(sza <= SZA_THRESHOLD_CORRECTION):
-            sp = fid.variables["sp"][:]
-            t = fid.variables["t2m"][:]
-            ea = fid.variables["d2m"][:]
-            for i in pos:
-                sp = sp[i, :]
-                t = t[i, :]
-                ea = ea[i, :]
-            sp = calc_pressure_mb(sp)
-            ea = calc_vapour_pressure(ea)
-
-            # The time step value is the difference between  the actual timestep value and the previous
-            # value
-            if "land" not in dataset:
-                tcwv = fid.variables["tcwv"][:]
-                z_0 = fid.variables["z"][:]
-                for i in pos:
-                    tcwv = tcwv[i, :]
-                    z_0 = z_0[i, :]
-                z_0 /= GRAVITY
-                tcwv = calc_tcwv_cm(tcwv)
-            elif aotfile is not None:
+            sp = xds["sp"][date_i].values
+            t = xds["t2m"][date_i].values
+            ea = xds["d2m"][date_i].values
+            if "aod550" in xds.variables:
+                aot550 = xds["aod550"][date_i].values
+            elif aot_ds is not None:
                 b, a, f = _bracketing_dates(datesaot, dates[date_i])
-                tcwv, gtaot, projaot = _getECMWFTempInterpData(aotfile, "tcwv", b, a, f)
-                _, _, sizeX, sizeY, extent, _ = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))
-                tempds = gu.save_image(tcwv, gtaot, projaot, "MEM")
-                tcwv = gdal.Warp("", tempds, format="MEM", xRes=gt[1], yRes=gt[5],
-                                 outputBounds=extent, resampleAlg="bilinear")
-                del tempds
-                tcwv = tcwv.GetRasterBand(1).ReadAsArray()
-                z_0, gtaot, projaot = _getECMWFTempInterpData(aotfile, "z", b, a, f)
-                z_0 /= GRAVITY
-                _, _, sizeX, sizeY, extent, _ = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))
-                tempds = gu.save_image(z_0, gtaot, projaot, "MEM")
-                z_0 = gdal.Warp("", tempds, format="MEM", xRes=gt[1], yRes=gt[5],
-                                outputBounds=extent, resampleAlg="bilinear")
-                del tempds
-                z_0 = z_0.GetRasterBand(1).ReadAsArray()
-            else:
-                tcwv = TCWV_MIDLATITUDE_SUMMER
-                z_0 = gu.raster_data(elev_file)
-            if aotfile is not None:
-                b, a, f = _bracketing_dates(datesaot, dates[date_i])
-                aot550, gtaot, projaot = _getECMWFTempInterpData(aotfile, "aod550", b, a, f)
-                _, _, sizeX, sizeY, extent, _ = gu.raster_info("NETCDF:%s:%s" % (ncfile, var_name))
+                aot550, gtaot, projaot = _getECMWFTempInterpData(
+                    aot_ds,"aod550", b, a, f)
                 tempds = gu.save_image(aot550, gtaot, projaot, "MEM")
-                aot550 = gdal.Warp("", tempds, format="MEM", xRes=gt[1], yRes=gt[5],
+                y_size, x_size = data.shape
+                extent = [gt[0], gt[3] + gt[5] * y_size,
+                          gt[0] + gt[1] * x_size, gt[3]]
+                aot550 = gdal.Warp("", tempds,
+                                   format="MEM", xRes=gt[1], yRes=gt[5],
                                    outputBounds=extent, resampleAlg="bilinear")
                 del tempds
                 aot550 = aot550.GetRasterBand(1).ReadAsArray()
             else:
-                aot550 = RURAL_AOT_25KM
-
+                aot550 = np.full_like(sza, RURAL_AOT_25KM)
+            tcwv = xds["tcwv"][date_i].values
+            z_0 = xds["z"][date_i].values
+            sp = calc_pressure_mb(sp)
+            ea = calc_vapour_pressure(ea)
+            z_0 /= GRAVITY
+            tcwv = calc_tcwv_cm(tcwv)
             # Convert to W m-2
-            sdn = sdn / (time_step * 3600.)
+            sdn = sdn / 3600.
             sdn = correct_solar_irradiance(doy,
                                            ftime,
                                            sza,
@@ -1078,37 +872,34 @@ def _getECMWFSolarData(ncfile,
                                            aot550=aot550,
                                            svf=svf)
             # Convert to J m-2
-            sdn = sdn * (time_step * 3600.)
+            sdn = sdn * 3600.
         else:
             sdn = _ECMWFRespampleData(sdn, gt, proj, elev_file)
 
         cummulated_value = cummulated_value + sdn
-
-        if dates[date_i].hour in hours_forecast_radiation \
-                or "reanalysis" in dataset \
-                or "ensemble" in dataset:
+        if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation :
             # The reference will be zero for the next forecast or always zero for ERA5
             data_ref = 0
         else:
             # the reference is the cummulated value since the begining of the forecast in CAMS
             data_ref = data.copy()
 
-    fid.close()
     # Convert to average W m^-2
     cummulated_value /= (time_window * 3600.)
-
     return cummulated_value, gt, proj
 
 
 def _bracketing_dates(date_list, target_date):
+    date_list = list(date_list)
+    target_date = np.datetime64(target_date)
     try:
-        before =[x for x in date_list if (target_date - x).total_seconds() >= 0]
+        before = [x for x in date_list if (target_date - x) >= 0]
         if len(before) > 0:
             before = max(before)
         else:
             before = date_list[0]
-        
-        after = [x for x in date_list if (target_date - x).total_seconds() <= 0]
+
+        after = [x for x in date_list if (target_date - x) <= 0]
         if len(after) > 0:
             after = min(after)
         else:
@@ -1120,57 +911,48 @@ def _bracketing_dates(date_list, target_date):
     if before == after:
         frac = 1
     else:
-        frac = float((after - target_date).total_seconds()) / float(
-            (after - before).total_seconds())
+        frac = float((after - target_date)) / float((after - before))
     return date_list.index(before), date_list.index(after), frac
 
 
-def daily_reference_et(ecmwf_data_file,
-                       elev_file,
+def daily_reference_et(xds,
                        timedate_UTC,
+                       elev_file,
+                       slope_file,
+                       aspect_file,
+                       svf_file=None,
                        time_zone=0,
                        z_u=10,
                        z_t=2,
-                       slope_file=None,
-                       aspect_file=None,
-                       svf_file=None,
-                       ecmwf_dataset='ERA5_reanalysis',
-                       aot_data_file=None):
+                       is_forecast=False,
+                       aot_ds=None):
+
     # Find midnight in local time and convert to UTC time
     date_local = (timedate_UTC + dt.timedelta(hours=time_zone)).date()
     midnight_local = dt.datetime.combine(
         date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
     midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
-    # Open the netcdf time dataset
-    fid = netCDF4.Dataset(ecmwf_data_file, 'r')
-    if "valid_time" in fid.variables.keys():
-        time_var = "valid_time"
+    if "valid_time" in xds.variables:
+        dates = xds["valid_time"].values
     else:
-        time_var = "time"
-    time = fid.variables[time_var]
-    lat = fid.variables["latitude"][...]
-    lon = fid.variables["longitude"][...]
-    lon, lat = np.meshgrid(lon, lat, indexing='xy')
-    lon, lat = lon.data.astype(float), lat.data.astype(float)
-    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
-             for i in netCDF4.num2date(time[:], time.units, time.calendar)]
+        dates = xds["time"].values
+    lat = xds["latitude"].values
+    lon = xds["longitude"].values
+    lons, lats = np.meshgrid(lon, lat)
+    lons, lats = lons.astype(float), lats.astype(float)
 
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, midnight_UTC)
     if not date_0:
         date_0 = 0
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, 
+    date_1, _, _ = _bracketing_dates(dates,
             midnight_UTC + dt.timedelta(hours=24))
 
-    elev_data = gu.raster_data(elev_file)
-    # Open air temperature dataset
-    t2m_fid = gdal.Open('NETCDF:"' + ecmwf_data_file + '":t2m')
-    gt = t2m_fid.GetGeoTransform()
-    sr = osr.SpatialReference()
-    sr.ImportFromEPSG(4326)
-    proj = sr.ExportToWkt()
-    del t2m_fid
+    elev_data = gu.raster_data(elev_file).astype(float)
+    elev_data[np.isin(elev_data, DEM_NANS)] = np.nan
+    # Read spatial reference
+    gt, proj = _get_gdal_params(xds, "t2m")
 
     # Initialize stack variables
     t_max = np.full(elev_data.shape, -99999.)
@@ -1181,23 +963,11 @@ def daily_reference_et(ecmwf_data_file,
     es_array = []
     for date_i in range(date_0 + 1, date_1 + 1):
         # Read the right time layers
-        t_air = fid.variables["t2m"][:]
-        td = fid.variables["d2m"][:]
-        u = fid.variables["u%i" % z_u][:]
-        v = fid.variables["v%i" % z_u][:]
-        p = fid.variables["sp"][:]
-        pos = [date_i]
-        if "expver" in fid.variables.keys():
-            if fid.variables["expver"].ndim > 1:
-                pos = [date_i, 0]
-
-        # Calcultate temperature at 0m datum height
-        for i in pos:
-            t_air = t_air[i]
-            td = td[i]
-            u = u[i]
-            v = v[i]
-            p = p[i]
+        t_air = xds["t2m"][date_i].values
+        td = xds["d2m"][date_i].values
+        u = xds["u%i" % z_u][date_i].values
+        v = xds["v%i" % z_u][date_i].values
+        p = xds["sp"][date_i].values
         t_air, td, u, v, p = map(np.ma.filled,
                                  [t_air, td, u, v, p],
                                  5 * [np.nan])
@@ -1208,25 +978,7 @@ def daily_reference_et(ecmwf_data_file,
         del v, valid
         p[np.isfinite(p)] = calc_pressure_mb(p[np.isfinite(p)])
 
-        if "land" not in ecmwf_dataset:
-            z = fid.variables["z"][:]
-            for i in pos:
-                z = z[i]
-            z /= GRAVITY
-
-        else:
-            _, _, _, _, extent, _ = gu.raster_info('NETCDF:"' + ecmwf_data_file + '":t2m')
-            outDs = gdal.Warp("",
-                              elev_file,
-                              format="MEM",
-                              dstSRS=proj,
-                              xRes=gt[1],
-                              yRes=gt[5],
-                              outputBounds=extent,
-                              resampleAlg="average")
-            z = outDs.GetRasterBand(1).ReadAsArray()
-
-            del outDs
+        z = xds["z"][date_i].values / GRAVITY
 
         # Calculate dew temperature and vapour pressure at elevation height
         z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
@@ -1254,18 +1006,15 @@ def daily_reference_et(ecmwf_data_file,
         p_array.append(p)
         u_array.append(u)
 
-    sdn_mean, _, _ = _getECMWFSolarData(ecmwf_data_file,
-                                        "ssrd",
+    sdn_mean, _, _ = _getECMWFSolarData(xds,
                                         midnight_UTC,
                                         elev_file,
-                                        slope_file=slope_file,
-                                        aspect_file=aspect_file,
+                                        slope_file,
+                                        aspect_file,
                                         svf_file=svf_file,
                                         time_window=24,
-                                        dataset=ecmwf_dataset,
-                                        aotfile=aot_data_file)
-
-    fid.close()
+                                        is_forecast=is_forecast,
+                                        aot_ds=aot_ds)
 
     t_max[t_max == -99999] = np.nan
     t_min[t_min == 99999] = np.nan
@@ -1278,10 +1027,10 @@ def daily_reference_et(ecmwf_data_file,
     u_mean = np.nanmean(np.array(u_array), axis=0)
     p_mean = np.nanmean(np.array(p_array), axis=0)
 
-    lat = _ECMWFRespampleData(lat, gt, proj, template_file=elev_file,
+    lats = _ECMWFRespampleData(lats, gt, proj, template_file=elev_file,
                               resample_alg="bilinear")
     doy = float(timedate_UTC.strftime("%j"))
-    f_cd = pet.calc_cloudiness(sdn_mean, lat, elev_data, doy)
+    f_cd = pet.calc_cloudiness(sdn_mean, lats, elev_data, doy)
     le = pet.pet_fao56(t_mean, u_mean, ea_mean, es_mean, p_mean, sdn_mean, z_u, z_t,
                        f_cd=f_cd, is_daily=True)
 
@@ -1290,86 +1039,50 @@ def daily_reference_et(ecmwf_data_file,
     return et_ref, t_min, t_max, sdn_mean, ea_mean, u_mean, p_mean
 
 
-def mean_temperature(ecmwf_data_file,
+def mean_temperature(xds,
                      elev_file,
                      timedate_UTC,
                      time_zone=0,
-                     z_t=2,
-                     ecmwf_dataset='ERA5_reanalysis'):
+                     z_t=2):
+    if "valid_time" in xds.variables:
+        dates = xds["valid_time"].values
+    else:
+        dates = xds["time"].values
     # Find midnight in local time and convert to UTC time
     date_local = (timedate_UTC + dt.timedelta(hours=time_zone)).date()
     midnight_local = dt.datetime.combine(
         date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
     midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
 
-    # Open the netcdf time dataset
-    fid = netCDF4.Dataset(ecmwf_data_file, 'r')
-    if "valid_time" in fid.variables.keys():
-        time_var = "valid_time"
-    else:
-        time_var = "time"
-    time = fid.variables[time_var]
-    dates = [i._to_real_datetime().replace(tzinfo=dt.timezone.utc)
-             for i in netCDF4.num2date(time[:], time.units, time.calendar)]
     # Get the time right before date_time, to ose it as integrated baseline
     date_0, _, _ = _bracketing_dates(dates, midnight_UTC)
     if not date_0:
         date_0 = 0
     # Get the time right before the temporal witndow set
-    date_1, _, _ = _bracketing_dates(dates, 
+    date_1, _, _ = _bracketing_dates(dates,
             midnight_UTC + dt.timedelta(hours=24))
 
-    elev_data = gu.raster_data(elev_file)
-    # Open air temperature dataset
-    t2m_fid = gdal.Open('NETCDF:"' + ecmwf_data_file + '":t2m')
-    gt = t2m_fid.GetGeoTransform()
-    sr = osr.SpatialReference()
-    sr.ImportFromEPSG(4326)
-    proj = sr.ExportToWkt()
-    del t2m_fid
+    elev_data = gu.raster_data(elev_file).astype(float)
+    elev_data[np.isin(elev_data, DEM_NANS)] = np.nan
+    # Get spatial reference
+    gt, proj = _get_gdal_params(xds, "t2m")
 
     # Initialize stack variables
     t_max = np.full(elev_data.shape, -99999.)
     t_min = np.full(elev_data.shape, 99999.)
     for date_i in range(date_0 + 1, date_1 + 1):
         # Read the right time layers
-        t_air = fid.variables["t2m"][:]
-        pos = [date_i]
-        if "expver" in fid.variables.keys():
-            if fid.variables["expver"].ndim > 1:
-                pos = [date_i, 0]
-
-        # Calcultate temperature at 0m datum height
-        for i in pos:
-            t_air = t_air[i]
+        t_air = xds["t2m"][date_i].values
         t_air = np.ma.filled(t_air, np.nan)
-        if "land" not in ecmwf_dataset:
-            z = fid.variables["z"][:]
-            for i in pos:
-                z = z[i]
-            z /= GRAVITY
-        else:
-            _, _, _, _, extent, _ = gu.raster_info('NETCDF:"' + ecmwf_data_file + '":t2m')
-            outDs = gdal.Warp("",
-                              elev_file,
-                              format="MEM",
-                              dstSRS=proj,
-                              xRes=gt[1],
-                              yRes=gt[5],
-                              outputBounds=extent,
-                              resampleAlg="average")
-            z = outDs.GetRasterBand(1).ReadAsArray()
-            del outDs
-
+        z = xds["z"][date_i].values / GRAVITY
         # Calculate dew temperature and vapour pressure at elevation height
         z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
                                 resample_alg="bilinear")
         t_air = _ECMWFRespampleData(t_air, gt, proj, template_file=elev_file)
-
         t_air = calc_air_temperature_blending_height(t_air, elev_data + z_t,
                                                      z_0=z + 2.0)
 
-        # Avoid sprading possible NaNs
+        # Avoid spreading possible NaNs
         valid = np.isfinite(t_air)
         t_max[valid] = np.maximum(t_max[valid], t_air[valid])
         t_min[valid] = np.minimum(t_min[valid], t_air[valid])
@@ -1412,8 +1125,8 @@ def correct_solar_irradiance(doy,
     sdn_cs = np.maximum(sdn_cs, 0.)
     # Cloudiness factor
     fci_cl = np.clip(sdn / sdn_cs, 0., 1)
-    z_1 = gu.raster_data(elev_file)
-
+    z_1 = gu.raster_data(elev_file).astype(float)
+    z_1[np.isin(z_1, DEM_NANS)] = np.nan
     sdn = _ECMWFRespampleData(sdn, gt, proj, elev_file)
     sdn[~np.isfinite(z_1)] = np.nan
     sza = _ECMWFRespampleData(sza, gt, proj, elev_file, resample_alg="bilinear")
@@ -1589,3 +1302,9 @@ def iterception_calder(lai, rain, f_c=1, specific_storage=0.2, q=0.5):
 
     return i_mm
 
+def _get_gdal_params(ds, var_name):
+    proj = ds[var_name].spatial_ref.crs_wkt
+    ds[var_name].rio.transform()
+    gt = ds.rio.transform()
+    gt = [gt[2], gt[0], gt[1], gt[5], gt[3], gt[4]]
+    return gt, proj

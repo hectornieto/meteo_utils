@@ -6,14 +6,15 @@ from pyproj import Proj
 import cdsapi
 from meteo_utils import ecmwf_utils as eu
 from meteo_utils import solar_irradiance as sun
-from meteo_utils import dem_utils as du
 
-METEO_DATA_FIELDS = ["TA", "EA", "U", "P", "AOT", "TCWV", "SDN"]
-CDS_VARIABLES = ['100m_u_component_of_wind', '100m_v_component_of_wind',
-                 '10m_u_component_of_wind', '10m_v_component_of_wind',
-                 '2m_dewpoint_temperature', '2m_temperature',
+METEO_DATA_FIELDS = ["TA", "EA", "WS", "PA", "AOT", "TCWV", "SW-IN", "LW-IN"]
+CDS_VARIABLES = ['100m_u_component_of_wind',
+                 '100m_v_component_of_wind',
+                 '10m_u_component_of_wind',
+                 '10m_v_component_of_wind',
+                 '2m_dewpoint_temperature',
+                 '2m_temperature',
                  'surface_pressure',
-                 'surface_solar_radiation_downward_clear_sky',
                  'surface_solar_radiation_downwards',
                  'surface_thermal_radiation_downwards',
                  'total_column_water_vapour',
@@ -21,8 +22,7 @@ CDS_VARIABLES = ['100m_u_component_of_wind', '100m_v_component_of_wind',
 
 ADS_VARIABLES = ["total_aerosol_optical_depth_550nm"]
 
-DAILY_VARS = ["ETref", "SDNday"]
-
+DAILY_VARS = ["ETr", "SW-IN-DD"]
 
 def process_single_date(elev_input_file,
                         slope_input_file,
@@ -73,28 +73,28 @@ def process_single_date(elev_input_file,
     date_obj = dt.datetime.strptime(str(date_int), "%Y%m%d")
     date_ini = (date_obj - dt.timedelta(1))
     date_end = date_obj + dt.timedelta(1)
-    date_str = f"{date_ini.strftime('%Y-%m-%d')} / {date_end.strftime('%Y-%m-%d')}"
+    date_str = f"{date_ini.strftime('%Y-%m-%d')}/{date_end.strftime('%Y-%m-%d')}"
     # Area is North, West, South, East
     extent_geo = p(minx, maxy, inverse=True), p(maxx, miny, inverse=True)
-    area = f"{extent_geo[0][1] + 1} / {extent_geo[0][0] - 1} / " \
-           f"{extent_geo[1][1] - 1} / {extent_geo[1][0] + 1}"
+    area = [extent_geo[0][1] + 1, extent_geo[0][0] - 1,
+            extent_geo[1][1] - 1, extent_geo[1][0] + 1]
     print(f"Querying products for extent {area}\n"
           f"..and dates {date_obj - dt.timedelta(1)} to {date_obj + dt.timedelta(1)}")
 
     # Connect to the server and download the data
-    s = {'format': 'netcdf',
+    s = {'data_format': 'grib',
          'variable': CDS_VARIABLES,
          'date': date_str,
          'area': area,
-         'product_type': 'reanalysis',
-         'time': [str(t).zfill(2) + ":00" for t in range(0, 24, 1)]
-         }
+         'product_type': ["reanalysis"],
+         'time': [str(t).zfill(2) + ":00" for t in range(0, 24, 1)]}
 
-    c = cdsapi.Client(quiet=True, progress=False)
-    cds_target = str(dst_folder / f"{date_int}_era5.nc")
-    print(f"Saving into {cds_target}")
-    c.retrieve('reanalysis-era5-single-levels', s, cds_target)
-    print(f"Saved to file {cds_target}")
+    cds_target = dst_folder / f"{date_int}_era5.grib"
+    if not cds_target.exists():
+        c = cdsapi.Client(quiet=True, progress=False)
+        print(f"Saving into {cds_target}")
+        c.retrieve('reanalysis-era5-single-levels', s, cds_target)
+        print(f"Saved to file {cds_target}")
 
     # If we are working on the currrent year we need to query the forecast cams data, otherwise download reanalysis
     if date_obj.year == dt.date.today().year:
@@ -102,16 +102,18 @@ def process_single_date(elev_input_file,
     else:
         dataset = "cams-global-reanalysis-eac4"
 
-    print(f"Downloading \"{', '.join(ADS_VARIABLES)}\" from the Copernicus Atmospheric Store")
-    ads_target = str(dst_folder / f"{date_int}_cams.nc")
-    eu.download_ADS_data(dataset,
-                         date_obj - dt.timedelta(1),
-                         date_obj + dt.timedelta(1),
-                         ADS_VARIABLES,
-                         ads_target,
-                         overwrite=False,
-                         area=area)
-    print(f"Saved to file {ads_target}")
+    ads_target = dst_folder / f"{date_int}_cams.grib"
+    if not ads_target.exists():
+        print(f"Downloading \"{', '.join(ADS_VARIABLES)}\" "
+              f"from the Copernicus Atmospheric Store")
+        eu.download_ADS_data(dataset,
+                             date_obj - dt.timedelta(1),
+                             date_obj + dt.timedelta(1),
+                             ADS_VARIABLES,
+                             ads_target,
+                             overwrite=False,
+                             area=area)
+        print(f"Saved to file {ads_target}")
 
     date_obj = date_obj + dt.timedelta(hours=acq_time)
     time_zone = sun.angle_average(extent_geo[0][0], extent_geo[1][0]) / 15.
@@ -126,7 +128,7 @@ def process_single_date(elev_input_file,
                                blending_height,
                                aod550_data_file=ads_target,
                                time_zone=time_zone,
-                               ecmwf_dataset="ERA5_reanalysis",
+                               is_forecast=False,
                                slope_file=slope_input_file,
                                aspect_file=aspect_input_file,
                                svf_file=svf_input_file)
@@ -139,7 +141,7 @@ def process_single_date(elev_input_file,
                 hour = int(np.floor(acq_time))
                 minute = int(60 * acq_time - hour)
                 acq_time_str = f"{hour:02}{minute:02}"
-                if param == "SDN":
+                if param == "SW-IN":
                     for i, var1 in enumerate(["DIR", "DIF"]):
                         for j, var2 in enumerate(["PAR", "NIR"]):
                             param = f"{var2}-{var1}"
@@ -199,7 +201,7 @@ if __name__ == "__main__":
     aspect_input_file = "./test/aspect.tif"
     svf_input_file = "./test/svf.tif"
 
-    date_int = 20210112  # YYYYMMDD
+    date_int = 20210612  # YYYYMMDD
     acq_time = 11.5  # Decimal hour
     dst_folder = "./test"
     blending_height = 100  # m above ground level at which meteo will be produced
