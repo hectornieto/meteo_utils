@@ -360,7 +360,7 @@ def get_ECMWF_data(ecmwf_data_file,
             else:
                 ref_hour = -1
             data, gt, proj = _get_ECMWF_cummulative_data(
-                xds, "strd", ref_hour, after)
+                xds, "tp", ref_hour, after)
             data = data * 1000
             data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
