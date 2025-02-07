@@ -81,6 +81,7 @@ GRIB_KWARGS ={'engine': 'cfgrib',
               'ignore_keys': ['edition'],
               'extra_coords': {'expver': 'valid_time'}}
 
+
 def download_CDS_data(dataset,
                       product_type,
                       date_start,
@@ -93,7 +94,7 @@ def download_CDS_data(dataset,
     with open(cds_credentials_file, "r") as f:
         credentials = yaml.safe_load(f)
 
-    s = {"variable": variables, 
+    s = {"variable": variables,
          "data_format": "grib"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
@@ -129,7 +130,7 @@ def download_ADS_data(dataset,
     with open(ads_credentials_file, 'r') as f:
         credentials = yaml.safe_load(f)
 
-    s = {"variable": variables, 
+    s = {"variable": variables,
          "data_format": "grib"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
@@ -431,7 +432,7 @@ def get_ECMWF_data(ecmwf_data_file,
                 tcwv = calc_tcwv_cm(tcwv)
                 tcwv = _ECMWFRespampleData(tcwv, gtaot, projaot, elev_file)
             else:
-                tcwv = np.full_like(sza, TCWV_MIDLATITUDE_SUMMER)
+                tcwv = np.full_like(t, TCWV_MIDLATITUDE_SUMMER)
 
             if "aod550" in xds.variables:
                 aot550, gtaot, projaot = _getECMWFTempInterpData(
@@ -443,7 +444,7 @@ def get_ECMWF_data(ecmwf_data_file,
                     ads, "aod550", b, a, f)
                 aot550 = _ECMWFRespampleData(aot550, gtaot, projaot, elev_file)
             else:
-                aot550 = np.full_like(sza, RURAL_AOT_25KM)
+                aot550 = np.full_like(t, RURAL_AOT_25KM)
 
             doy = float(timedate_UTC.strftime("%j"))
             sza, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
