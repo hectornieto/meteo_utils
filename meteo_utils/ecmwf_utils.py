@@ -71,8 +71,8 @@ R_W = 461.5
 HOURS_FORECAST_CAMS = (1, 13)
 HOURS_FORECAST_ERA5 = range(0, 25)
 
-ADS_CREDENTIALS_FILE = os.path.join(os.path.expanduser("~"),
-                                    '.adsapirc')
+ADS_CREDENTIALS_FILE = os.path.join(os.path.expanduser("~"), ".adsapirc")
+CDS_CREDENTIALS_FILE = os.path.join(os.path.expanduser("~"), ".cdsapirc")
 
 DEM_NANS = [-32768, -9999, -999]
 
@@ -88,7 +88,11 @@ def download_CDS_data(dataset,
                       variables,
                       target,
                       overwrite=False,
-                      area=None):
+                      area=None,
+                      cds_credentials_file=CDS_CREDENTIALS_FILE):
+    with open(cds_credentials_file, "r") as f:
+        credentials = yaml.safe_load(f)
+
     s = {"variable": variables, 
          "data_format": "grib",
          "download_format": "unarchived"}
@@ -110,7 +114,7 @@ def download_CDS_data(dataset,
 
     # Connect to the server and download the data
     if not os.path.exists(target) or overwrite:
-        c = cdsapi.Client(quiet=True, progress=False)
+        c = cdsapi.Client(url=credentials["url"], key=credentials["key"], quiet=True, progress=False)
         c.retrieve(dataset, s, target)
     print("Downloaded")
 
@@ -121,8 +125,9 @@ def download_ADS_data(dataset,
                       variables,
                       target,
                       overwrite=False,
-                      area=None):
-    with open(ADS_CREDENTIALS_FILE, 'r') as f:
+                      area=None,
+                      ads_credentials_file=ADS_CREDENTIALS_FILE):
+    with open(ads_credentials_file, 'r') as f:
         credentials = yaml.safe_load(f)
 
     s = {"variable": variables, 
