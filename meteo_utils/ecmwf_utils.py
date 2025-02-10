@@ -94,15 +94,14 @@ def download_CDS_data(dataset,
         credentials = yaml.safe_load(f)
 
     s = {"variable": variables, 
-         "data_format": "grib",
-         "download_format": "unarchived"}
+         "data_format": "grib"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
     if area:
         s["area"] = area
     if dataset == "reanalysis-era5-single-levels" or dataset == "reanalysis-era5-land":
         if product_type:
-            s["product_type"] = product_type
+            s["product_type"] = [product_type]
         if "ensemble" in product_type:
             s["time"] = [str(t).zfill(2) + ":00" for t in range(0, 24, 3)]
         else:
@@ -530,7 +529,7 @@ def get_ECMWF_data(ecmwf_data_file,
                                       aot_ds=ads)[0]
 
         elif field == "TP-DD":
-            data, gt, proj = _get_cummulative_data(ecmwf_data_file,
+            data, gt, proj = _get_cummulative_data(xds,
                                                    "tp",
                                                    midnight_UTC,
                                                    elev_file,
@@ -716,7 +715,6 @@ def _get_cummulative_data(xds,
                           time_window=24,
                           is_forecast=True):
 
-    date_time = np.datetime64(date_time)
     if "valid_time" in xds.variables:
         dates = xds["valid_time"].values
     else:
