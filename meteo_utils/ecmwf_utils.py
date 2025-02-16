@@ -93,7 +93,7 @@ def download_CDS_data(dataset,
     with open(cds_credentials_file, "r") as f:
         credentials = yaml.safe_load(f)
 
-    s = {"variable": variables, 
+    s = {"variable": variables,
          "data_format": "grib"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
@@ -129,7 +129,7 @@ def download_ADS_data(dataset,
     with open(ads_credentials_file, 'r') as f:
         credentials = yaml.safe_load(f)
 
-    s = {"variable": variables, 
+    s = {"variable": variables,
          "data_format": "grib"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
@@ -514,8 +514,7 @@ def get_ECMWF_data(ecmwf_data_file,
                                                 is_forecast=is_forecast,
                                                 aot_ds=ads)
 
-
-        elif field == "ETr":
+        elif field in ["ETr", "ETr+"]:
             data = daily_reference_et(xds,
                                       timedate_UTC,
                                       elev_file,
@@ -526,7 +525,11 @@ def get_ECMWF_data(ecmwf_data_file,
                                       z_u=10,
                                       z_t=2,
                                       is_forecast=is_forecast,
-                                      aot_ds=ads)[0]
+                                      aot_ds=ads)
+            # Return only ETr or all daily data fields needed for ETr calculation
+            # (i.e. ETr, TA-MIN-DD, TA-MAX-DD, SW-IN-DD, EA-DD, WS-DD, PA-DD)
+            if field == "ETr":
+                data = data[0]
 
         elif field == "TP-DD":
             data, gt, proj = _get_cummulative_data(xds,
