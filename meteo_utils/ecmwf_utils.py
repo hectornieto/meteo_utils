@@ -358,7 +358,7 @@ def get_ECMWF_data(ecmwf_data_file,
         elif field == "TP":
             before, after, frac = _bracketing_dates(dates, timedate_UTC)
             if is_forecast:
-                if timedate_UTC.hour in HOURS_FORECAST_CAMS:
+                if timedate_UTC.hour + 1 in HOURS_FORECAST_CAMS:
                     ref_hour = -1
                 else:
                     ref_hour = after - 1
@@ -372,7 +372,7 @@ def get_ECMWF_data(ecmwf_data_file,
         elif field == "LW-IN":
             before, after, frac = _bracketing_dates(dates, timedate_UTC)
             if is_forecast:
-                if timedate_UTC.hour in HOURS_FORECAST_CAMS:
+                if timedate_UTC.hour + 1 in HOURS_FORECAST_CAMS:
                     ref_hour = -1
                 else:
                     ref_hour = after - 1
@@ -749,7 +749,7 @@ def _get_cummulative_data(xds,
         # Read the right time layers
         data = xds[var_name][date_i].values
         data[np.isnan(data)] = 0
-        interval = (data - data_ref)
+        interval = data - data_ref
         cummulated_value = cummulated_value + interval
         if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation:
             # The reference will be zero for the next forecast or always zero for ERA5
@@ -827,7 +827,7 @@ def _getECMWFSolarData(xds,
         # Read the right time layers
         data = xds["ssrd"][date_i].values
         data[np.isnan(data)] = 0
-        sdn = np.absolute(data - data_ref)
+        sdn = data - data_ref
         ftime = date.hour + date.minute / 60
         doy = date.day_of_year
         sza, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
