@@ -736,7 +736,7 @@ def _get_cummulative_data(xds,
     else:
         hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation :
+    if pd.to_datetime(dates[date_0]).hour + 1 in hours_forecast_radiation :
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0
     else:
@@ -751,7 +751,7 @@ def _get_cummulative_data(xds,
         data[np.isnan(data)] = 0
         interval = data - data_ref
         cummulated_value = cummulated_value + interval
-        if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation:
+        if pd.to_datetime(dates[date_i]).hour + 1 in hours_forecast_radiation:
             # The reference will be zero for the next forecast or always zero for ERA5
             data_ref = 0
         else:
@@ -813,12 +813,12 @@ def _getECMWFSolarData(xds,
     else:
         hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation :
+    if pd.to_datetime(dates[date_0]).hour + 1 in hours_forecast_radiation :
         # The reference will be zero for the next forecast or always zero for ERA5
-        data_ref = 0
+        data_ref = 0.
     else:
         data_ref = xds["ssrd"][date_0].values - xds["ssrd"][date_0 - 1].values
-        data_ref[np.isnan(data_ref)] = 0
+        data_ref[np.isnan(data_ref)] = 0.
 
     # Initialize output variable
     cummulated_value = 0.
@@ -826,7 +826,7 @@ def _getECMWFSolarData(xds,
         date = pd.to_datetime(dates[date_i])
         # Read the right time layers
         data = xds["ssrd"][date_i].values
-        data[np.isnan(data)] = 0
+        data[np.isnan(data)] = 0.
         sdn = data - data_ref
         ftime = date.hour + date.minute / 60
         doy = date.day_of_year
@@ -884,15 +884,15 @@ def _getECMWFSolarData(xds,
             sdn = _ECMWFRespampleData(sdn, gt, proj, elev_file)
 
         cummulated_value = cummulated_value + sdn
-        if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation :
+        if pd.to_datetime(dates[date_i]).hour + 1 in hours_forecast_radiation :
             # The reference will be zero for the next forecast or always zero for ERA5
-            data_ref = 0
+            data_ref = 0.
         else:
             # the reference is the cummulated value since the begining of the forecast in CAMS
             data_ref = data.copy()
 
     # Convert to average W m^-2
-    cummulated_value /= (time_window * 3600.)
+    cummulated_value = cummulated_value / (time_window * 3600.)
     return cummulated_value, gt, proj
 
 
