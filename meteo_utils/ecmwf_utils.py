@@ -357,6 +357,8 @@ def get_ECMWF_data(ecmwf_data_file,
 
         elif field == "TP":
             before, after, frac = _bracketing_dates(dates, timedate_UTC)
+            if before == after:
+                after = before + 1
             if is_forecast:
                 if timedate_UTC.hour + 1 in HOURS_FORECAST_CAMS:
                     ref_hour = -1
@@ -371,6 +373,8 @@ def get_ECMWF_data(ecmwf_data_file,
 
         elif field == "LW-IN":
             before, after, frac = _bracketing_dates(dates, timedate_UTC)
+            if before == after:
+                after = before + 1
             if is_forecast:
                 if timedate_UTC.hour + 1 in HOURS_FORECAST_CAMS:
                     ref_hour = -1
