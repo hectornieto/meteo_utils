@@ -68,7 +68,7 @@ R_D = 287.04
 R_W = 461.5
 
 # Baseline hours for beginning of ECWMF integrated values
-HOURS_FORECAST_CAMS = (1, 13)
+HOURS_FORECAST_CAMS = (0, 12)
 HOURS_FORECAST_ERA5 = range(0, 25)
 
 ADS_CREDENTIALS_FILE = os.path.join(os.path.expanduser("~"), ".adsapirc")
