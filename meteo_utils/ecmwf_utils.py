@@ -357,13 +357,11 @@ def get_ECMWF_data(ecmwf_data_file,
 
         elif field == "TP":
             before, after, frac = _bracketing_dates(dates, timedate_UTC)
-            if before == after:
-                after = before + 1
             if is_forecast:
-                if timedate_UTC.hour + 1 in HOURS_FORECAST_CAMS:
+                if pd.to_datetime(dates[before]) in HOURS_FORECAST_CAMS:
                     ref_hour = -1
                 else:
-                    ref_hour = after - 1
+                    ref_hour = int(before)
             else:
                 ref_hour = -1
             data, gt, proj = _get_ECMWF_cummulative_data(
@@ -373,13 +371,11 @@ def get_ECMWF_data(ecmwf_data_file,
 
         elif field == "LW-IN":
             before, after, frac = _bracketing_dates(dates, timedate_UTC)
-            if before == after:
-                after = before + 1
             if is_forecast:
-                if timedate_UTC.hour + 1 in HOURS_FORECAST_CAMS:
+                if pd.to_datetime(dates[before]).hour in HOURS_FORECAST_CAMS:
                     ref_hour = -1
                 else:
-                    ref_hour = after - 1
+                    ref_hour = int(before)
             else:
                 ref_hour = -1
             data, gt, proj = _get_ECMWF_cummulative_data(
@@ -740,7 +736,7 @@ def _get_cummulative_data(xds,
     else:
         hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if pd.to_datetime(dates[date_0]).hour + 1 in hours_forecast_radiation :
+    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation :
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0
     else:
@@ -755,7 +751,7 @@ def _get_cummulative_data(xds,
         data[np.isnan(data)] = 0
         interval = data - data_ref
         cummulated_value = cummulated_value + interval
-        if pd.to_datetime(dates[date_i]).hour + 1 in hours_forecast_radiation:
+        if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation:
             # The reference will be zero for the next forecast or always zero for ERA5
             data_ref = 0
         else:
@@ -888,7 +884,7 @@ def _getECMWFSolarData(xds,
             sdn = _ECMWFRespampleData(sdn, gt, proj, elev_file)
 
         cummulated_value = cummulated_value + sdn
-        if pd.to_datetime(dates[date_i]).hour + 1 in hours_forecast_radiation :
+        if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation :
             # The reference will be zero for the next forecast or always zero for ERA5
             data_ref = 0.
         else:
@@ -921,9 +917,12 @@ def _bracketing_dates(date_list, target_date):
         return None, None, np.nan
     if before == after:
         frac = 1
+        before = date_list.index(before)
+        after = before + 1
     else:
         frac = float((after - target_date)) / float((after - before))
-    return date_list.index(before), date_list.index(after), frac
+        before, after = date_list.index(before), date_list.index(after)
+    return before, after, frac
 
 
 def daily_reference_et(xds,
