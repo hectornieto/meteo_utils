@@ -197,7 +197,10 @@ def get_ECMWF_data(ecmwf_data_file,
     lons, lats = lons.astype(float), lats.astype(float)
 
     if aod550_data_file is not None:
-        ads = xr.open_dataset(aod550_data_file, **GRIB_KWARGS)
+        if aod550_data_file.suffix == ".grib":
+            ads = xr.open_dataset(aod550_data_file, **GRIB_KWARGS)
+        else:
+            ads = xr.open_dataset(ecmwf_data_file)
         # Stack the forecast time dimensions
         if is_forecast:
             ads = ads.stack(dim=["forecast_reference_time", "forecast_period"])
