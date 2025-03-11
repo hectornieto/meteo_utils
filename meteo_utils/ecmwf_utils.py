@@ -173,7 +173,10 @@ def get_ECMWF_data(ecmwf_data_file,
     midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
 
     ftime = timedate_UTC.hour + timedate_UTC.minute / 60
-    xds = xr.open_dataset(ecmwf_data_file, **GRIB_KWARGS)
+    if ecmwf_data_file.suffix == ".grib":
+        xds = xr.open_dataset(ecmwf_data_file, **GRIB_KWARGS)
+    else:
+        xds = xr.open_dataset(ecmwf_data_file)
 
     xds.rio.write_crs(4326, inplace=True).rio.set_spatial_dims(
         x_dim="longitude",
