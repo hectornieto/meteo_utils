@@ -7,6 +7,7 @@ Created on Tue Jul 17 14:47:50 2018
 
 import datetime as dt
 import os
+from pathlib import Path
 import re
 import cdsapi
 import xarray as xr
@@ -163,7 +164,8 @@ def get_ECMWF_data(ecmwf_data_file,
                    aod550_data_file=None,
                    time_zone=0,
                    is_forecast=False):
-
+    # Ensure that the input ECWMF is a Path object
+    ecmwf_data_file = Path(ecmwf_data_file)
     timedate_UTC = timedate_UTC.replace(tzinfo=dt.timezone.utc)
     # Find midnight in local time and convert to UTC time
     date_local = (timedate_UTC + dt.timedelta(
@@ -197,6 +199,8 @@ def get_ECMWF_data(ecmwf_data_file,
     lons, lats = lons.astype(float), lats.astype(float)
 
     if aod550_data_file is not None:
+        # Ensure that the CAMS ECWMF file is a Path object
+        aod550_data_file = Path(aod550_data_file)
         if aod550_data_file.suffix == ".grib":
             ads = xr.open_dataset(aod550_data_file, **GRIB_KWARGS)
         else:
