@@ -173,7 +173,10 @@ def get_ECMWF_data(ecmwf_data_file,
     midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
 
     ftime = timedate_UTC.hour + timedate_UTC.minute / 60
-    xds = xr.open_dataset(ecmwf_data_file, **GRIB_KWARGS)
+    if ecmwf_data_file.suffix == ".grib":
+        xds = xr.open_dataset(ecmwf_data_file, **GRIB_KWARGS)
+    else:
+        xds = xr.open_dataset(ecmwf_data_file)
 
     xds.rio.write_crs(4326, inplace=True).rio.set_spatial_dims(
         x_dim="longitude",
@@ -194,7 +197,10 @@ def get_ECMWF_data(ecmwf_data_file,
     lons, lats = lons.astype(float), lats.astype(float)
 
     if aod550_data_file is not None:
-        ads = xr.open_dataset(aod550_data_file, **GRIB_KWARGS)
+        if aod550_data_file.suffix == ".grib":
+            ads = xr.open_dataset(aod550_data_file, **GRIB_KWARGS)
+        else:
+            ads = xr.open_dataset(ecmwf_data_file)
         # Stack the forecast time dimensions
         if is_forecast:
             ads = ads.stack(dim=["forecast_reference_time", "forecast_period"])
