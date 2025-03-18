@@ -153,6 +153,18 @@ def download_ADS_data(dataset,
     print("Downloaded")
 
 
+def access_dataset(ecmwf_data_file, load_dataset):
+    if ecmwf_data_file.suffix == ".grib":
+        kwargs = GRIB_KWARGS
+    else:
+        kwargs = {}
+    if load_dataset:
+        xds = xr.load_dataset(ecmwf_data_file, **kwargs)
+    else:
+        xds = xr.open_dataset(ecmwf_data_file, **kwargs)
+    return xds
+
+
 def get_ECMWF_data(ecmwf_data_file,
                    timedate_UTC,
                    meteo_data_fields,
@@ -163,7 +175,8 @@ def get_ECMWF_data(ecmwf_data_file,
                    svf_file=None,
                    aod550_data_file=None,
                    time_zone=0,
-                   is_forecast=False):
+                   is_forecast=False,
+                   load_dataset=False):
     # Ensure that the input ECWMF is a Path object
     ecmwf_data_file = Path(ecmwf_data_file)
     timedate_UTC = timedate_UTC.replace(tzinfo=dt.timezone.utc)
@@ -173,12 +186,9 @@ def get_ECMWF_data(ecmwf_data_file,
     midnight_local = dt.datetime.combine(
         date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
     midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
-
     ftime = timedate_UTC.hour + timedate_UTC.minute / 60
-    if ecmwf_data_file.suffix == ".grib":
-        xds = xr.open_dataset(ecmwf_data_file, **GRIB_KWARGS)
-    else:
-        xds = xr.open_dataset(ecmwf_data_file)
+
+    xds = access_dataset(ecmwf_data_file, load_dataset)
 
     xds.rio.write_crs(4326, inplace=True).rio.set_spatial_dims(
         x_dim="longitude",
@@ -201,10 +211,7 @@ def get_ECMWF_data(ecmwf_data_file,
     if aod550_data_file is not None:
         # Ensure that the CAMS ECWMF file is a Path object
         aod550_data_file = Path(aod550_data_file)
-        if aod550_data_file.suffix == ".grib":
-            ads = xr.open_dataset(aod550_data_file, **GRIB_KWARGS)
-        else:
-            ads = xr.open_dataset(ecmwf_data_file)
+        ads = access_dataset(aod550_data_file, load_dataset)
         # Stack the forecast time dimensions
         if is_forecast:
             ads = ads.stack(dim=["forecast_reference_time", "forecast_period"])
