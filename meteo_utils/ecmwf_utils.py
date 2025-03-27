@@ -154,6 +154,16 @@ def download_ADS_data(dataset,
 
 
 def access_dataset(ecmwf_data_file, load_dataset):
+
+    # Check if the data file is alread a xarray dataset, e.g. when reading from Earth Data Hub
+    try:
+        ecmwf_data_file.valid_time
+        return ecmwf_data_file
+    except AttributeError:
+        pass
+
+    # Otherwise it is a file downloaded from CDS/ADS
+    ecmwf_data_file = Path(ecmwf_data_file)
     if ecmwf_data_file.suffix == ".grib":
         kwargs = GRIB_KWARGS
     else:
@@ -178,7 +188,6 @@ def get_ECMWF_data(ecmwf_data_file,
                    is_forecast=False,
                    load_dataset=False):
     # Ensure that the input ECWMF is a Path object
-    ecmwf_data_file = Path(ecmwf_data_file)
     timedate_UTC = timedate_UTC.replace(tzinfo=dt.timezone.utc)
     # Find midnight in local time and convert to UTC time
     date_local = (timedate_UTC + dt.timedelta(
@@ -207,6 +216,7 @@ def get_ECMWF_data(ecmwf_data_file,
     lon = xds["longitude"].values
     lons, lats = np.meshgrid(lon, lat)
     lons, lats = lons.astype(float), lats.astype(float)
+    extent = [np.min(lon), np.min(lat), np.max(lon), np.max(lat)]
 
     if aod550_data_file is not None:
         # Ensure that the CAMS ECWMF file is a Path object
@@ -231,15 +241,12 @@ def get_ECMWF_data(ecmwf_data_file,
     output = dict()
     for field in meteo_data_fields:
         if field == "TA":
-            t2m, gt, proj = _getECMWFTempInterpData(xds, "t2m",
-                                                    beforeI, afterI, frac)
+            t2m, gt, proj = _getECMWFTempInterpData(xds, "t2m", beforeI, afterI, frac)
             if "z" in xds.variables:
                 # Get geopotential height at which Ta is calculated
-                z, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI,
-                                                      afterI, frac)
+                z, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI, afterI, frac)
                 z /= GRAVITY
             else:
-                _, _, _, _, extent, _ = gu.raster_info('NETCDF:"' + ecmwf_data_file + '":t2m')
                 outDs = gdal.Warp("",
                                   elev_file,
                                   format="MEM",
@@ -251,8 +258,6 @@ def get_ECMWF_data(ecmwf_data_file,
                 z = outDs.GetRasterBand(1).ReadAsArray()
                 del outDs
 
-            sp, gt, proj = _getECMWFTempInterpData(xds, "sp",
-                                                   beforeI, afterI, frac)
             # Resample dataset and calculate actual blending height temperature based on input
             # elevation data
             z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
@@ -263,16 +268,12 @@ def get_ECMWF_data(ecmwf_data_file,
                                                         z_0=z + 2)
 
         elif field == "EA":
-            d2m, gt, proj = _getECMWFTempInterpData(xds, "d2m",
-                                                    beforeI, afterI, frac)
+            d2m, gt, proj = _getECMWFTempInterpData(xds, "d2m", beforeI, afterI, frac)
             if "z" in xds.variables:
                 # Get geopotential height at which Ta is calculated
-                z, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI,
-                                                      afterI, frac)
+                z, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI, afterI, frac)
                 z /= GRAVITY
             else:
-                _, _, _, _, extent, _ = gu.raster_info(
-                    'NETCDF:"' + ecmwf_data_file + '":t2m')
                 outDs = gdal.Warp("",
                                   elev_file,
                                   format="MEM",
@@ -294,18 +295,14 @@ def get_ECMWF_data(ecmwf_data_file,
 
         elif field == "WS":
             if "u100" in xds.variables and "v100" in xds.variables:
-                u100, gt, proj = _getECMWFTempInterpData(xds, "u100",
-                                                         beforeI, afterI, frac)
-                v100, gt, proj = _getECMWFTempInterpData(xds, "v100",
-                                                         beforeI, afterI, frac)
+                u100, gt, proj = _getECMWFTempInterpData(xds, "u100", beforeI, afterI, frac)
+                v100, gt, proj = _getECMWFTempInterpData(xds, "v100", beforeI, afterI, frac)
                 # Combine the two components of wind speed and calculate speed at blending height
                 ws = calc_wind_speed(u100, v100)
                 z_u = 100
             else:
-                u10, gt, proj = _getECMWFTempInterpData(xds, "u10",
-                                                         beforeI, afterI, frac)
-                v10, gt, proj = _getECMWFTempInterpData(xds, "v10",
-                                                         beforeI, afterI, frac)
+                u10, gt, proj = _getECMWFTempInterpData(xds, "u10", beforeI, afterI, frac)
+                v10, gt, proj = _getECMWFTempInterpData(xds, "v10", beforeI, afterI, frac)
                 # Combine the two components of wind speed and calculate speed at blending height
                 ws = calc_wind_speed(u10, v10)
                 z_u = 10
@@ -314,14 +311,10 @@ def get_ECMWF_data(ecmwf_data_file,
             else:
                 ws = _ECMWFRespampleData(ws, gt, proj, template_file=elev_file)
                 if "sr" in xds.variables:
-                    z_0M, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "sr",
-                                                             beforeI, afterI,
-                                                             frac)
+                    z_0M, gt, proj = _getECMWFTempInterpData(xds, "sr", beforeI, afterI, frac)
                     z_0M = _ECMWFRespampleData(z_0M, gt, proj, template_file=elev_file)
                 elif "fsr" in xds.variables:
-                    z_0M, gt, proj = _getECMWFTempInterpData(ecmwf_data_file, "fsr",
-                                                             beforeI, afterI,
-                                                             frac)
+                    z_0M, gt, proj = _getECMWFTempInterpData(xds, "fsr", beforeI, afterI, frac)
                     z_0M = _ECMWFRespampleData(z_0M, gt, proj, template_file=elev_file)
 
                 else:
@@ -330,19 +323,15 @@ def get_ECMWF_data(ecmwf_data_file,
                 data = calc_windspeed_blending_height(ws, z_0M, z_bh)
 
         elif field == "PA":
-            sp, gt, proj = _getECMWFTempInterpData(xds, "sp",
-                                                   beforeI, afterI, frac)
+            sp, gt, proj = _getECMWFTempInterpData(xds, "sp", beforeI, afterI, frac)
             if "z" in xds.variables:
                 # Get geopotential height at which Ta is calculated
-                z, gt, proj = _getECMWFTempInterpData(xds,
-                                                      "z",beforeI, afterI, frac)
+                z, gt, proj = _getECMWFTempInterpData(xds, "z",beforeI, afterI, frac)
                 z /= GRAVITY
                 z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
                                         resample_alg="bilinear")
 
             else:
-                proj, _, _, _, extent, _ = gu.raster_info(
-                    'NETCDF:"' + ecmwf_data_file + '":t2m')
                 outDs = gdal.Warp("",
                                   elev_file,
                                   format="MEM",
@@ -356,8 +345,7 @@ def get_ECMWF_data(ecmwf_data_file,
                                         resample_alg="bilinear")
                 del outDs
 
-            t0, gt, proj = _getECMWFTempInterpData(xds, "t2m",
-                                                   beforeI, afterI, frac)
+            t0, gt, proj = _getECMWFTempInterpData(xds, "t2m", beforeI, afterI, frac)
 
             t0 = _ECMWFRespampleData(t0, gt, proj, template_file=elev_file)
             # Convert pressure from pascals to mb
@@ -367,8 +355,7 @@ def get_ECMWF_data(ecmwf_data_file,
             data = calc_pressure_mb(sp)
 
         elif field == "TCWV":
-            tcwv, gt, proj = _getECMWFTempInterpData(xds, "tcwv",
-                                                     beforeI, afterI, frac)
+            tcwv, gt, proj = _getECMWFTempInterpData(xds, "tcwv", beforeI, afterI, frac)
             data = calc_tcwv_cm(tcwv)
             data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
@@ -402,21 +389,16 @@ def get_ECMWF_data(ecmwf_data_file,
             data = _ECMWFRespampleData(data, gt, proj, template_file=elev_file)
 
         elif field == "SW-IN":
-            t, gt, proj = _getECMWFTempInterpData(xds, "t2m",
-                                                  beforeI, afterI, frac)
+            t, gt, proj = _getECMWFTempInterpData(xds, "t2m", beforeI, afterI, frac)
             t = _ECMWFRespampleData(t, gt, proj, elev_file)
             if "z" in xds.variables:
                 # Get geopotential height at which Ta is calculated
-                z, gt, proj = _getECMWFTempInterpData(xds, "z",
-                                                      beforeI,
-                                                      afterI, frac)
+                z, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI, afterI, frac)
                 z /= GRAVITY
                 z = _ECMWFRespampleData(z, gt, proj, template_file=elev_file,
                                         resample_alg="bilinear")
 
             else:
-                proj, _, _, _, extent, _ = gu.raster_info(
-                    'NETCDF:"' + ecmwf_data_file + '":t2m')
                 outDs = gdal.Warp("",
                                   elev_file,
                                   format="MEM",
@@ -430,22 +412,19 @@ def get_ECMWF_data(ecmwf_data_file,
                                         resampleAlg="bilinear")
                 del outDs
 
-            sp, _, _ = _getECMWFTempInterpData(xds, "sp",
-                                               beforeI, afterI, frac)
+            sp, _, _ = _getECMWFTempInterpData(xds, "sp", beforeI, afterI, frac)
             sp = _ECMWFRespampleData(sp, gt, proj, template_file=elev_file)
             # Calcultate pressure at 0m datum height
             sp = calc_pressure_height(sp, t, elev_data, z_0=z)
             sp = calc_pressure_mb(sp)
             if "tcwv" in xds.variables:
-                tcwv, _, _ = _getECMWFTempInterpData(xds, "tcwv",
-                                                     beforeI, afterI, frac)
+                tcwv, _, _ = _getECMWFTempInterpData(xds, "tcwv", beforeI, afterI, frac)
                 tcwv = calc_tcwv_cm(tcwv)
                 tcwv = _ECMWFRespampleData(tcwv, gt, proj, elev_file)
 
             elif aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
-                tcwv, gtaot, projaot = _getECMWFTempInterpData(ads,
-                                                               "tcwv", b, a, f)
+                tcwv, gtaot, projaot = _getECMWFTempInterpData(ads, "tcwv", b, a, f)
                 tcwv = calc_tcwv_cm(tcwv)
                 tcwv = _ECMWFRespampleData(tcwv, gtaot, projaot, elev_file)
             else:
@@ -457,8 +436,7 @@ def get_ECMWF_data(ecmwf_data_file,
                 aot550 = _ECMWFRespampleData(aot550, gtaot, projaot, elev_file)
             elif aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
-                aot550, gtaot, projaot = _getECMWFTempInterpData(
-                    ads, "aod550", b, a, f)
+                aot550, gtaot, projaot = _getECMWFTempInterpData(ads, "aod550", b, a, f)
                 aot550 = _ECMWFRespampleData(aot550, gtaot, projaot, elev_file)
             else:
                 aot550 = np.full_like(t, RURAL_AOT_25KM)
@@ -511,12 +489,9 @@ def get_ECMWF_data(ecmwf_data_file,
         elif field == "AOT":
             if aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
-                aod550, gt, proj = _getECMWFTempInterpData(ads,
-                                                           "aod550", b, a, f)
+                aod550, gt, proj = _getECMWFTempInterpData(ads, "aod550", b, a, f)
             else:
-                aod550, gt, proj = _getECMWFTempInterpData(xds,
-                                                           "aod550", beforeI,
-                                                           afterI, frac)
+                aod550, gt, proj = _getECMWFTempInterpData(xds, "aod550", beforeI, afterI, frac)
 
             data = _ECMWFRespampleData(aod550, gt, proj, template_file=elev_file)
 
