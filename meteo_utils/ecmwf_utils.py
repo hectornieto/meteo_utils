@@ -240,6 +240,7 @@ def get_ECMWF_data(ecmwf_data_file,
     elev_data[np.isin(elev_data, DEM_NANS)] = np.nan
     output = dict()
     for field in meteo_data_fields:
+        print(f"Processing {field}...")
         if field == "TA":
             t2m, gt, proj = _getECMWFTempInterpData(xds, "t2m", beforeI, afterI, frac)
             if "z" in xds.variables:
@@ -828,12 +829,31 @@ def _getECMWFSolarData(xds,
             sp = xds["sp"][date_i].values
             t = xds["t2m"][date_i].values
             ea = xds["d2m"][date_i].values
+
+            if "tcwv" in xds.variables:
+                tcwv = xds["tcwv"][date_i].values
+                tcwv = calc_tcwv_cm(tcwv)
+            elif aot_ds is not None:
+                b, a, f = _bracketing_dates(datesaot, dates[date_i])
+                tcwv, gtaot, projaot = _getECMWFTempInterpData(aot_ds, "tcwv", b, a, f)
+                tcwv = calc_tcwv_cm(tcwv)
+                tempds = gu.save_image(tcwv, gtaot, projaot, "MEM")
+                y_size, x_size = data.shape
+                extent = [gt[0], gt[3] + gt[5] * y_size,
+                          gt[0] + gt[1] * x_size, gt[3]]
+                tcwv = gdal.Warp("", tempds,
+                                   format="MEM", xRes=gt[1], yRes=gt[5],
+                                   outputBounds=extent, resampleAlg="bilinear")
+                del tempds
+                tcwv = tcwv.GetRasterBand(1).ReadAsArray()
+            else:
+                tcwv = np.full_like(t, TCWV_MIDLATITUDE_SUMMER)
+
             if "aod550" in xds.variables:
                 aot550 = xds["aod550"][date_i].values
             elif aot_ds is not None:
                 b, a, f = _bracketing_dates(datesaot, dates[date_i])
-                aot550, gtaot, projaot = _getECMWFTempInterpData(
-                    aot_ds,"aod550", b, a, f)
+                aot550, gtaot, projaot = _getECMWFTempInterpData(aot_ds,"aod550", b, a, f)
                 tempds = gu.save_image(aot550, gtaot, projaot, "MEM")
                 y_size, x_size = data.shape
                 extent = [gt[0], gt[3] + gt[5] * y_size,
@@ -845,7 +865,7 @@ def _getECMWFSolarData(xds,
                 aot550 = aot550.GetRasterBand(1).ReadAsArray()
             else:
                 aot550 = np.full_like(sza, RURAL_AOT_25KM)
-            tcwv = xds["tcwv"][date_i].values
+
             z_0 = xds["z"][date_i].values
             sp = calc_pressure_mb(sp)
             ea = calc_vapour_pressure(ea)
