@@ -757,7 +757,7 @@ def _get_cummulative_data(xds,
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0
     else:
-        data_ref = xds[var_name][date_0].values - xds[var_name][date_0 - 1].values
+        data_ref = xds[var_name][date_0].values
         data_ref[np.isnan(data_ref)] = 0
 
     # Initialize output variable
