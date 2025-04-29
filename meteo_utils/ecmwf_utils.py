@@ -834,7 +834,7 @@ def _getECMWFSolarData(xds,
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0.
     else:
-        data_ref = xds["ssrd"][date_0].values - xds["ssrd"][date_0 - 1].values
+        data_ref = xds["ssrd"][date_0].values
         data_ref[np.isnan(data_ref)] = 0.
 
     # Initialize output variable
