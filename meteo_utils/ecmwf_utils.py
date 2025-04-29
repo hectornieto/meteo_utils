@@ -753,7 +753,7 @@ def _get_cummulative_data(xds,
     else:
         hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation :
+    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation:
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0
     else:
@@ -830,7 +830,7 @@ def _getECMWFSolarData(xds,
     else:
         hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if pd.to_datetime(dates[date_0]).hour + 1 in hours_forecast_radiation :
+    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation:
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0.
     else:
