@@ -174,7 +174,7 @@ if __name__ == "__main__":
     svf_input_file = dem_dir / f"svf.tif"
 
     date_int = 20200620  # YYYYMMDD
-    acq_time = 11.75  # Decimal hour
+    acq_time = 12.25  # Decimal hour
 
     blending_height = 100  # m above ground level at which meteo will be produced
     process_single_date(elev_input_file,

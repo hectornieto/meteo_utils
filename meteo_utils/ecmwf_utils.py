@@ -206,9 +206,8 @@ def get_ECMWF_data(ecmwf_data_file,
     lat = xds["latitude"].values
     lon = xds["longitude"].values
     lons, lats = np.meshgrid(lon, lat)
-    lons, lats = lons.astype(float), lats.astype(float)
-
-    if aod550_data_file is not None:
+    lons, lats = lons.astype(float), lats.astype(float)       
+    if not isinstance(aod550_data_file, type(None)):
         # Ensure that the CAMS ECWMF file is a Path object
         aod550_data_file = Path(aod550_data_file)
         ads = access_dataset(aod550_data_file, load_dataset)
@@ -509,16 +508,26 @@ def get_ECMWF_data(ecmwf_data_file,
                                                    non_shaded=non_shaded)
 
         elif field == "AOT":
-            if aod550_data_file is not None:
+            if "aod550" in xds.variables:
+                aod550, gt, proj = getECMWFTempInterpData(xds,
+                                                          "aod550", b, a, f)               
+            elif aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
                 aod550, gt, proj = _getECMWFTempInterpData(ads,
                                                            "aod550", b, a, f)
             else:
-                aod550, gt, proj = _getECMWFTempInterpData(xds,
-                                                           "aod550", beforeI,
+                aod550, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI, 
                                                            afterI, frac)
 
-            data = _ECMWFRespampleData(aod550, gt, proj, template_file=elev_file)
+                aod550 = _ECMWFRespampleData(aod550, gt, proj, 
+                                             template_file=elev_file,
+                                             resample_alg="bilinear")
+                
+                aod550[:] = RURAL_AOT_25KM
+
+
+            data = _ECMWFRespampleData(aod550, gt, proj, 
+                                       template_file=elev_file)
 
         elif field == "SW-IN-DD":
             # Interpolate solar irradiance over 24 hour period starting at midnight local time
@@ -855,7 +864,7 @@ def _getECMWFSolarData(xds,
             ea = xds["d2m"][date_i].values
             if "aod550" in xds.variables:
                 aot550 = xds["aod550"][date_i].values
-            elif aot_ds is not None:
+            elif not isinstance(aot_ds, type(None)):
                 b, a, f = _bracketing_dates(datesaot, dates[date_i])
                 aot550, gtaot, projaot = _getECMWFTempInterpData(
                     aot_ds,"aod550", b, a, f)
