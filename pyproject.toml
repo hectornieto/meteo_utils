@@ -1,0 +1,60 @@
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meteo_utils"
+version = "2.1.0"
+description = "Python methods for the automatic download and processing of ECMWF data relevant for evapotranspiration modelling."
+authors = [
+    { name = "Héctor Nieto", email = "hector.nieto@csic.es" },
+    { name = "Radoslaw Guzinski", email = "rmgu@dhigroup.com"},
+]
+
+keywords = ['SEN-ET',
+            'Evapotranspiration',
+            "Landsat",
+            'Sentinel-3',
+            'SLSTR',
+            "Copernicus",
+            "ERA5", 
+            "CAMS",
+            "ECMWF",
+            'Remote Sensing']
+
+classifiers  = [
+        "Development Status :: 5 - Production/Stable",
+        "Intended Audience :: Science/Research",
+        "Topic :: Scientific/Engineering :: Agricultural Science",
+        "Topic :: Scientific/Engineering :: Hydrology",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 3"]
+        
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+readme = "README.md"
+requires-python = ">=3.6"
+dependencies = ["cdsapi",
+                "netCDF4",
+                "numpy",
+                "gdal",
+                "osr",
+                "scipy",
+                "scikit-image",
+                "pyyaml",
+                "cfgrib",
+                "xarray",
+                "rioxarray",
+                "pypro4sail@git+https://github.com/hectornieto/pypro4sail",
+                "pyTSEB@git+https://github.com/hectornieto/pyTSEB",
+                "pyDMS@git+https://github.com/radosuav/pyDMS"
+                ]
+
+[project.urls]
+Homepage = "https://github.com/hectornieto/meteo_utils"
+
+[tool.setuptools]
+packages = ["meteo_utils"]
+
