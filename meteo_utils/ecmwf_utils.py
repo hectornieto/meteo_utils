@@ -207,7 +207,7 @@ def get_ECMWF_data(ecmwf_data_file,
     lon = xds["longitude"].values
     lons, lats = np.meshgrid(lon, lat)
     lons, lats = lons.astype(float), lats.astype(float)
-       
+
     if aod550_data_file is not None:
         # Ensure that the CAMS ECWMF file is a Path object
         aod550_data_file = Path(aod550_data_file)
@@ -510,7 +510,7 @@ def get_ECMWF_data(ecmwf_data_file,
 
         elif field == "AOT":
             if "aod550" in xds.variables:
-                aod550, gt, proj = _getECMWFTempInterpData(xds, "aod550", beforeI, afterI, frac)               
+                aod550, gt, proj = _getECMWFTempInterpData(xds, "aod550", beforeI, afterI, frac)
             elif aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
                 aod550, gt, proj = _getECMWFTempInterpData(ads, "aod550", b, a, f)
@@ -984,11 +984,13 @@ def daily_reference_et(xds,
     # Initialize stack variables
     t_max = np.full(elev_data.shape, -99999.)
     t_min = np.full(elev_data.shape, 99999.)
-    p_array = []
-    u_array = []
-    ea_array = []
-    es_array = []
+    p_sum = None
+    u_sum = None
+    ea_sum = None
+    es_sum = None
+    count = 0
     for date_i in range(date_0 + 1, date_1 + 1):
+        count = count + 1
         # Read the right time layers
         t_air = xds["t2m"][date_i].values
         td = xds["d2m"][date_i].values
@@ -1028,10 +1030,16 @@ def daily_reference_et(xds,
         valid = np.isfinite(t_air)
         t_max[valid] = np.maximum(t_max[valid], t_air[valid])
         t_min[valid] = np.minimum(t_min[valid], t_air[valid])
-        es_array.append(met.calc_vapor_pressure(t_air))
-        ea_array.append(ea)
-        p_array.append(p)
-        u_array.append(u)
+        if es_sum is None:
+            es_sum = met.calc_vapor_pressure(t_air)
+            ea_sum = ea
+            p_sum = p
+            u_sum = u
+        else:
+            es_sum = es_sum + met.calc_vapor_pressure(t_air)
+            ea_sum = ea_sum + ea
+            p_sum = p_sum + p
+            u_sum = u_sum + u
 
     sdn_mean, _, _ = _getECMWFSolarData(xds,
                                         midnight_UTC,
@@ -1048,11 +1056,11 @@ def daily_reference_et(xds,
 
     # Compute daily means
     t_mean = 0.5 * (t_max + t_min)
-    ea_mean = np.nanmean(np.array(ea_array), axis=0)
+    ea_mean = ea_sum / count
     # es_mean = 0.5 * (met.calc_vapor_pressure(t_max) + met.calc_vapor_pressure(t_min))
-    es_mean = np.nanmean(np.array(es_array), axis=0)
-    u_mean = np.nanmean(np.array(u_array), axis=0)
-    p_mean = np.nanmean(np.array(p_array), axis=0)
+    es_mean = es_sum / count
+    u_mean = u_sum / count
+    p_mean = p_sum / count
 
     lats = _ECMWFRespampleData(lats, gt, proj, template_file=elev_file,
                               resample_alg="bilinear")
