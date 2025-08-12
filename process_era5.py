@@ -216,8 +216,9 @@ if __name__ == "__main__":
                         dst_folder,
                         svf_input_file=svf_input_file,
                         blending_height=100)
-
-    out_flat = dst_folder / f"{str(date_int)}_flat.tif"
+                        
+    print("Getting unprocessed SW-IN (assuming flat surfaces) only for comparison purposes")
+    out_flat = dst_folder / f"{str(date_int)}_SW-IN-DD-flat.tif"
     with rasterio.open(elev_input_file) as fp:
         profile = fp.profile
 
