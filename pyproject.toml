@@ -18,7 +18,7 @@ keywords = ['SEN-ET',
             'Sentinel-3',
             'SLSTR',
             "Copernicus",
-            "ERA5", 
+            "ERA5",
             "CAMS",
             "ECMWF",
             'Remote Sensing']
@@ -31,7 +31,7 @@ classifiers  = [
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3"]
-        
+
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 readme = "README.md"
@@ -47,7 +47,6 @@ dependencies = ["cdsapi",
                 "cfgrib",
                 "xarray",
                 "rioxarray",
-                "pypro4sail@git+https://github.com/hectornieto/pypro4sail",
                 "pyTSEB@git+https://github.com/hectornieto/pyTSEB",
                 "pyDMS@git+https://github.com/radosuav/pyDMS"
                 ]
@@ -57,4 +56,3 @@ Homepage = "https://github.com/hectornieto/meteo_utils"
 
 [tool.setuptools]
 packages = ["meteo_utils"]
-
