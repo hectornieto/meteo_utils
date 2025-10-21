@@ -26,7 +26,6 @@ keywords = ['SEN-ET',
 classifiers  = [
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Science/Research",
-        "Topic :: Scientific/Engineering :: Agricultural Science",
         "Topic :: Scientific/Engineering :: Hydrology",
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Programming Language :: Python",
@@ -47,9 +46,9 @@ dependencies = ["cdsapi",
                 "cfgrib",
                 "xarray",
                 "rioxarray",
-                "pypro4sail@git+https://github.com/hectornieto/pypro4sail",
-                "pyTSEB@git+https://github.com/hectornieto/pyTSEB",
-                "pyDMS@git+https://github.com/radosuav/pyDMS"
+                "pypro4sail",
+                "pytseb",
+                "python-dms"
                 ]
 
 [project.urls]
