@@ -7,6 +7,7 @@ Created on Tue Jul 17 14:47:50 2018
 
 import datetime as dt
 import os
+from pathlib import Path
 import re
 import cdsapi
 import xarray as xr
@@ -68,7 +69,7 @@ R_D = 287.04
 R_W = 461.5
 
 # Baseline hours for beginning of ECWMF integrated values
-HOURS_FORECAST_CAMS = (1, 13)
+HOURS_FORECAST_CAMS = (0, 12)
 HOURS_FORECAST_ERA5 = range(0, 25)
 
 ADS_CREDENTIALS_FILE = os.path.join(os.path.expanduser("~"), ".adsapirc")
@@ -80,6 +81,7 @@ GRIB_KWARGS ={'engine': 'cfgrib',
               'time_dims': ['valid_time'],
               'ignore_keys': ['edition'],
               'extra_coords': {'expver': 'valid_time'}}
+
 
 def download_CDS_data(dataset,
                       product_type,
@@ -93,16 +95,15 @@ def download_CDS_data(dataset,
     with open(cds_credentials_file, "r") as f:
         credentials = yaml.safe_load(f)
 
-    s = {"variable": variables, 
-         "data_format": "grib",
-         "download_format": "unarchived"}
+    s = {"variable": variables,
+         "data_format": "grib"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
     if area:
         s["area"] = area
     if dataset == "reanalysis-era5-single-levels" or dataset == "reanalysis-era5-land":
         if product_type:
-            s["product_type"] = product_type
+            s["product_type"] = [product_type]
         if "ensemble" in product_type:
             s["time"] = [str(t).zfill(2) + ":00" for t in range(0, 24, 3)]
         else:
@@ -130,7 +131,7 @@ def download_ADS_data(dataset,
     with open(ads_credentials_file, 'r') as f:
         credentials = yaml.safe_load(f)
 
-    s = {"variable": variables, 
+    s = {"variable": variables,
          "data_format": "grib"}
     s["date"] = date_start.strftime("%Y-%m-%d") + "/" + date_end.strftime(
         "%Y-%m-%d")
@@ -152,6 +153,18 @@ def download_ADS_data(dataset,
     print("Downloaded")
 
 
+def access_dataset(ecmwf_data_file, load_dataset):
+    if ecmwf_data_file.suffix == ".grib":
+        kwargs = GRIB_KWARGS
+    else:
+        kwargs = {}
+    if load_dataset:
+        xds = xr.load_dataset(ecmwf_data_file, **kwargs)
+    else:
+        xds = xr.open_dataset(ecmwf_data_file, **kwargs)
+    return xds
+
+
 def get_ECMWF_data(ecmwf_data_file,
                    timedate_UTC,
                    meteo_data_fields,
@@ -162,8 +175,10 @@ def get_ECMWF_data(ecmwf_data_file,
                    svf_file=None,
                    aod550_data_file=None,
                    time_zone=0,
-                   is_forecast=False):
-
+                   is_forecast=False,
+                   load_dataset=False):
+    # Ensure that the input ECWMF is a Path object
+    ecmwf_data_file = Path(ecmwf_data_file)
     timedate_UTC = timedate_UTC.replace(tzinfo=dt.timezone.utc)
     # Find midnight in local time and convert to UTC time
     date_local = (timedate_UTC + dt.timedelta(
@@ -171,9 +186,9 @@ def get_ECMWF_data(ecmwf_data_file,
     midnight_local = dt.datetime.combine(
         date_local, dt.time()).replace(tzinfo=dt.timezone.utc)
     midnight_UTC = midnight_local - dt.timedelta(hours=time_zone)
-
     ftime = timedate_UTC.hour + timedate_UTC.minute / 60
-    xds = xr.open_dataset(ecmwf_data_file, **GRIB_KWARGS)
+
+    xds = access_dataset(ecmwf_data_file, load_dataset)
 
     xds.rio.write_crs(4326, inplace=True).rio.set_spatial_dims(
         x_dim="longitude",
@@ -194,7 +209,9 @@ def get_ECMWF_data(ecmwf_data_file,
     lons, lats = lons.astype(float), lats.astype(float)
 
     if aod550_data_file is not None:
-        ads = xr.open_dataset(aod550_data_file, **GRIB_KWARGS)
+        # Ensure that the CAMS ECWMF file is a Path object
+        aod550_data_file = Path(aod550_data_file)
+        ads = access_dataset(aod550_data_file, load_dataset)
         # Stack the forecast time dimensions
         if is_forecast:
             ads = ads.stack(dim=["forecast_reference_time", "forecast_period"])
@@ -358,10 +375,10 @@ def get_ECMWF_data(ecmwf_data_file,
         elif field == "TP":
             before, after, frac = _bracketing_dates(dates, timedate_UTC)
             if is_forecast:
-                if timedate_UTC.hour in HOURS_FORECAST_CAMS:
+                if pd.to_datetime(dates[before]) in HOURS_FORECAST_CAMS:
                     ref_hour = -1
                 else:
-                    ref_hour = after - 1
+                    ref_hour = int(before)
             else:
                 ref_hour = -1
             data, gt, proj = _get_ECMWF_cummulative_data(
@@ -372,10 +389,10 @@ def get_ECMWF_data(ecmwf_data_file,
         elif field == "LW-IN":
             before, after, frac = _bracketing_dates(dates, timedate_UTC)
             if is_forecast:
-                if timedate_UTC.hour in HOURS_FORECAST_CAMS:
+                if pd.to_datetime(dates[before]).hour in HOURS_FORECAST_CAMS:
                     ref_hour = -1
                 else:
-                    ref_hour = after - 1
+                    ref_hour = int(before)
             else:
                 ref_hour = -1
             data, gt, proj = _get_ECMWF_cummulative_data(
@@ -432,7 +449,7 @@ def get_ECMWF_data(ecmwf_data_file,
                 tcwv = calc_tcwv_cm(tcwv)
                 tcwv = _ECMWFRespampleData(tcwv, gtaot, projaot, elev_file)
             else:
-                tcwv = np.full_like(sza, TCWV_MIDLATITUDE_SUMMER)
+                tcwv = np.full_like(t, TCWV_MIDLATITUDE_SUMMER)
 
             if "aod550" in xds.variables:
                 aot550, gtaot, projaot = _getECMWFTempInterpData(
@@ -444,7 +461,7 @@ def get_ECMWF_data(ecmwf_data_file,
                     ads, "aod550", b, a, f)
                 aot550 = _ECMWFRespampleData(aot550, gtaot, projaot, elev_file)
             else:
-                aot550 = np.full_like(sza, RURAL_AOT_25KM)
+                aot550 = np.full_like(t, RURAL_AOT_25KM)
 
             doy = float(timedate_UTC.strftime("%j"))
             sza, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
@@ -492,14 +509,14 @@ def get_ECMWF_data(ecmwf_data_file,
                                                    non_shaded=non_shaded)
 
         elif field == "AOT":
-            if aod550_data_file is not None:
+            if "aod550" in xds.variables:
+                aod550, gt, proj = _getECMWFTempInterpData(xds, "aod550", beforeI, afterI, frac)
+            elif aod550_data_file is not None:
                 b, a, f = _bracketing_dates(datesaot, timedate_UTC)
-                aod550, gt, proj = _getECMWFTempInterpData(ads,
-                                                           "aod550", b, a, f)
+                aod550, gt, proj = _getECMWFTempInterpData(ads, "aod550", b, a, f)
             else:
-                aod550, gt, proj = _getECMWFTempInterpData(xds,
-                                                           "aod550", beforeI,
-                                                           afterI, frac)
+                aod550, gt, proj = _getECMWFTempInterpData(xds, "z", beforeI, afterI, frac)
+                aod550[:] = RURAL_AOT_25KM
 
             data = _ECMWFRespampleData(aod550, gt, proj, template_file=elev_file)
 
@@ -515,8 +532,7 @@ def get_ECMWF_data(ecmwf_data_file,
                                                 is_forecast=is_forecast,
                                                 aot_ds=ads)
 
-
-        elif field == "ETr":
+        elif field in ["ETr", "ETr+"]:
             data = daily_reference_et(xds,
                                       timedate_UTC,
                                       elev_file,
@@ -527,10 +543,14 @@ def get_ECMWF_data(ecmwf_data_file,
                                       z_u=10,
                                       z_t=2,
                                       is_forecast=is_forecast,
-                                      aot_ds=ads)[0]
+                                      aot_ds=ads)
+            # Return only ETr or all daily data fields needed for ETr calculation
+            # (i.e. ETr, TA-MIN-DD, TA-MAX-DD, SW-IN-DD, EA-DD, WS-DD, PA-DD)
+            if field == "ETr":
+                data = data[0]
 
         elif field == "TP-DD":
-            data, gt, proj = _get_cummulative_data(ecmwf_data_file,
+            data, gt, proj = _get_cummulative_data(xds,
                                                    "tp",
                                                    midnight_UTC,
                                                    elev_file,
@@ -716,7 +736,6 @@ def _get_cummulative_data(xds,
                           time_window=24,
                           is_forecast=True):
 
-    date_time = np.datetime64(date_time)
     if "valid_time" in xds.variables:
         dates = xds["valid_time"].values
     else:
@@ -734,11 +753,11 @@ def _get_cummulative_data(xds,
     else:
         hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation :
+    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation:
         # The reference will be zero for the next forecast or always zero for ERA5
         data_ref = 0
     else:
-        data_ref = xds[var_name][date_0].values - xds[var_name][date_0 - 1].values
+        data_ref = xds[var_name][date_0].values
         data_ref[np.isnan(data_ref)] = 0
 
     # Initialize output variable
@@ -747,7 +766,7 @@ def _get_cummulative_data(xds,
         # Read the right time layers
         data = xds[var_name][date_i].values
         data[np.isnan(data)] = 0
-        interval = (data - data_ref)
+        interval = data - data_ref
         cummulated_value = cummulated_value + interval
         if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation:
             # The reference will be zero for the next forecast or always zero for ERA5
@@ -811,12 +830,12 @@ def _getECMWFSolarData(xds,
     else:
         hours_forecast_radiation = HOURS_FORECAST_ERA5
 
-    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation :
+    if pd.to_datetime(dates[date_0]).hour in hours_forecast_radiation:
         # The reference will be zero for the next forecast or always zero for ERA5
-        data_ref = 0
+        data_ref = 0.
     else:
-        data_ref = xds["ssrd"][date_0].values - xds["ssrd"][date_0 - 1].values
-        data_ref[np.isnan(data_ref)] = 0
+        data_ref = xds["ssrd"][date_0].values
+        data_ref[np.isnan(data_ref)] = 0.
 
     # Initialize output variable
     cummulated_value = 0.
@@ -824,8 +843,8 @@ def _getECMWFSolarData(xds,
         date = pd.to_datetime(dates[date_i])
         # Read the right time layers
         data = xds["ssrd"][date_i].values
-        data[np.isnan(data)] = 0
-        sdn = np.absolute(data - data_ref)
+        data[np.isnan(data)] = 0.
+        sdn = data - data_ref
         ftime = date.hour + date.minute / 60
         doy = date.day_of_year
         sza, saa = met.calc_sun_angles(lats, lons, 0, doy, ftime)
@@ -884,13 +903,13 @@ def _getECMWFSolarData(xds,
         cummulated_value = cummulated_value + sdn
         if pd.to_datetime(dates[date_i]).hour in hours_forecast_radiation :
             # The reference will be zero for the next forecast or always zero for ERA5
-            data_ref = 0
+            data_ref = 0.
         else:
             # the reference is the cummulated value since the begining of the forecast in CAMS
             data_ref = data.copy()
 
     # Convert to average W m^-2
-    cummulated_value /= (time_window * 3600.)
+    cummulated_value = cummulated_value / (time_window * 3600.)
     return cummulated_value, gt, proj
 
 
@@ -915,9 +934,12 @@ def _bracketing_dates(date_list, target_date):
         return None, None, np.nan
     if before == after:
         frac = 1
+        before = date_list.index(before)
+        after = before + 1
     else:
         frac = float((after - target_date)) / float((after - before))
-    return date_list.index(before), date_list.index(after), frac
+        before, after = date_list.index(before), date_list.index(after)
+    return before, after, frac
 
 
 def daily_reference_et(xds,
@@ -962,11 +984,13 @@ def daily_reference_et(xds,
     # Initialize stack variables
     t_max = np.full(elev_data.shape, -99999.)
     t_min = np.full(elev_data.shape, 99999.)
-    p_array = []
-    u_array = []
-    ea_array = []
-    es_array = []
+    p_sum = None
+    u_sum = None
+    ea_sum = None
+    es_sum = None
+    count = 0
     for date_i in range(date_0 + 1, date_1 + 1):
+        count = count + 1
         # Read the right time layers
         t_air = xds["t2m"][date_i].values
         td = xds["d2m"][date_i].values
@@ -1006,10 +1030,16 @@ def daily_reference_et(xds,
         valid = np.isfinite(t_air)
         t_max[valid] = np.maximum(t_max[valid], t_air[valid])
         t_min[valid] = np.minimum(t_min[valid], t_air[valid])
-        es_array.append(met.calc_vapor_pressure(t_air))
-        ea_array.append(ea)
-        p_array.append(p)
-        u_array.append(u)
+        if es_sum is None:
+            es_sum = met.calc_vapor_pressure(t_air)
+            ea_sum = ea
+            p_sum = p
+            u_sum = u
+        else:
+            es_sum = es_sum + met.calc_vapor_pressure(t_air)
+            ea_sum = ea_sum + ea
+            p_sum = p_sum + p
+            u_sum = u_sum + u
 
     sdn_mean, _, _ = _getECMWFSolarData(xds,
                                         midnight_UTC,
@@ -1026,11 +1056,11 @@ def daily_reference_et(xds,
 
     # Compute daily means
     t_mean = 0.5 * (t_max + t_min)
-    ea_mean = np.nanmean(np.array(ea_array), axis=0)
+    ea_mean = ea_sum / count
     # es_mean = 0.5 * (met.calc_vapor_pressure(t_max) + met.calc_vapor_pressure(t_min))
-    es_mean = np.nanmean(np.array(es_array), axis=0)
-    u_mean = np.nanmean(np.array(u_array), axis=0)
-    p_mean = np.nanmean(np.array(p_array), axis=0)
+    es_mean = es_sum / count
+    u_mean = u_sum / count
+    p_mean = p_sum / count
 
     lats = _ECMWFRespampleData(lats, gt, proj, template_file=elev_file,
                               resample_alg="bilinear")

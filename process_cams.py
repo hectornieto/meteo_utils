@@ -3,9 +3,13 @@ import numpy as np
 import datetime as dt
 from osgeo import gdal
 from pyproj import Proj
-
+import cdsapi
 from meteo_utils import ecmwf_utils as eu
 from meteo_utils import solar_irradiance as sun
+from meteo_utils.ecmwf_utils import GRIB_KWARGS
+
+import xarray as xr
+import rasterio
 
 
 METEO_DATA_FIELDS = ["TA", "EA", "WS", "PA", "AOT", "TCWV", "SW-IN", "LW-IN"]
@@ -20,8 +24,7 @@ ADS_VARIABLES = ['10m_u_component_of_wind', '10m_v_component_of_wind',
                  "total_aerosol_optical_depth_550nm",
                  "forecast_surface_roughness"]
 
-DAILY_VARS = ["ETr", "SW-IN-DD"]
-
+DAILY_VARS = ["SW-IN-DD"]
 
 def process_single_date(elev_input_file,
                         slope_input_file,
@@ -80,7 +83,7 @@ def process_single_date(elev_input_file,
           f"..and dates {date_obj - dt.timedelta(1)} to {date_obj + dt.timedelta(1)}")
 
     print(f"Downloading \"{', '.join(ADS_VARIABLES)}\" from the Copernicus Atmospheric Store")
-    ads_target = str(dst_folder / f"{date_int}_cams.grib")
+    ads_target = dst_folder / f"{date_int}_LEVEL2_ECMWF_CAMS.grib"
     eu.download_ADS_data("cams-global-atmospheric-composition-forecasts",
                          date_obj - dt.timedelta(1),
                          date_obj + dt.timedelta(1),
@@ -110,7 +113,7 @@ def process_single_date(elev_input_file,
         for param, array in output.items():
             if param not in DAILY_VARS:
                 hour = int(np.floor(acq_time))
-                minute = int(60 * acq_time - hour)
+                minute = int(60 * (acq_time - hour))
                 acq_time_str = f"{hour:02}{minute:02}"
                 if param == "SW-IN":
                     for i, var1 in enumerate(["DIR", "DIF"]):
@@ -162,19 +165,17 @@ def process_single_date(elev_input_file,
 
 
 if __name__ == "__main__":
+    workdir = Path()
+    dst_folder = workdir / "test" / "test_cams"
+    dem_dir = workdir / "test"
+    elev_input_file = dem_dir / f"dem.tif"
+    slope_input_file = dem_dir / f"slope.tif"
+    aspect_input_file = dem_dir / f"aspect.tif"
+    svf_input_file = dem_dir / f"svf.tif"
 
-    elev_input_file = "/path/to/the/dem/file"
-    slope_input_file = "/path/to/the/slope/file" # In degrees
-    aspect_input_file = "/path/to/the/aspect/file"  # 0 for flat
-    svf_input_file = "/path/to/the/sky/view/fraction/file"  # 0-1
-    elev_input_file = "./test/dem.tif"
-    slope_input_file = "./test/slope.tif"
-    aspect_input_file = "./test/aspect.tif"
-    svf_input_file = "./test/svf.tif"
+    date_int = 20200620  # YYYYMMDD
+    acq_time = 12.25  # Decimal hour
 
-    date_int = 20210612  # YYYYMMDD
-    acq_time = 11.5  # Decimal hour
-    dst_folder = "./test_cams"
     blending_height = 100  # m above ground level at which meteo will be produced
     process_single_date(elev_input_file,
                         slope_input_file,
@@ -184,3 +185,22 @@ if __name__ == "__main__":
                         dst_folder,
                         svf_input_file=svf_input_file,
                         blending_height=100)
+    
+    print("Getting unprocessed SW-IN (assuming flat surfaces) only for comparison purposes")
+    out_flat = dst_folder / f"{str(date_int)}_SW-IN-DD-flat.tif"
+    with rasterio.open(elev_input_file) as fp:
+        profile = fp.profile
+    xds = xr.open_dataset(dst_folder / f"{date_int}_LEVEL2_ECMWF_CAMS.grib",
+                          **GRIB_KWARGS)
+    xds.rio.write_crs(4326, inplace=True).rio.set_spatial_dims(
+        x_dim="longitude",
+        y_dim="latitude",
+        inplace=True).rio.write_coordinate_system(inplace=True)
+
+    midnight = dt.datetime.strptime(str(date_int), "%Y%m%d")
+    sdn_flat, gt, proj = eu._get_cummulative_data(xds, "ssrd", midnight,
+                                                  elev_input_file, 24, True)
+    # Convert to mean daily flux in W m-2
+    sdn_flat = sdn_flat / 24 / 3600
+    with rasterio.open(out_flat, "w", **profile) as fp:
+        fp.write(sdn_flat, 1)
