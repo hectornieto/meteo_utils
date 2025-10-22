@@ -46,7 +46,7 @@ dependencies = ["cdsapi",
                 "cfgrib",
                 "xarray",
                 "rioxarray",
-                "pypro4sail",
+                "radiative-transfer-models",
                 "pytseb",
                 "python-dms"
                 ]
