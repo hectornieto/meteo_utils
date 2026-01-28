@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meteo_utils"
-version = "2.1.0"
+version = "2.1.1"
 description = "Python methods for the automatic download and processing of ECMWF data relevant for evapotranspiration modelling."
 authors = [
     { name = "Héctor Nieto", email = "hector.nieto@csic.es" },
