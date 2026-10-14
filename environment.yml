@@ -12,7 +12,7 @@ dependencies:
   - pyyaml
   - pip
   - pip:
-    - git+https://github.com/hectornieto/pyTSEB
-    - git+https://github.com/hectornieto/pypro4sail
-    - git+https://github.com/radosuav/pyDMS
+    - pyTSEB
+    - radiative-transfer-models
+    - python-dms
     - cfgrib

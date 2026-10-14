@@ -9,5 +9,5 @@ pyyaml
 cfgrib
 xarray
 rioxarray
-git+https://github.com/hectornieto/pyTSEB
-git+https://github.com/radosuav/pyDMS
+pyTSEB
+python-dms

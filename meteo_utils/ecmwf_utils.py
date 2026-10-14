@@ -154,6 +154,10 @@ def download_ADS_data(dataset,
 
 
 def access_dataset(ecmwf_data_file, load_dataset):
+
+    if isinstance(ecmwf_data_file, (xr.Dataset, xr.DataArray)):
+        return ecmwf_data_file
+
     if ecmwf_data_file.suffix == ".grib":
         kwargs = GRIB_KWARGS
     else:
@@ -177,8 +181,10 @@ def get_ECMWF_data(ecmwf_data_file,
                    time_zone=0,
                    is_forecast=False,
                    load_dataset=False):
-    # Ensure that the input ECWMF is a Path object
-    ecmwf_data_file = Path(ecmwf_data_file)
+
+    if isinstance(ecmwf_data_file, str):
+        # Ensure that the input ECWMF is a Path object
+        ecmwf_data_file= Path(ecmwf_data_file)
     timedate_UTC = timedate_UTC.replace(tzinfo=dt.timezone.utc)
     # Find midnight in local time and convert to UTC time
     date_local = (timedate_UTC + dt.timedelta(
@@ -209,8 +215,9 @@ def get_ECMWF_data(ecmwf_data_file,
     lons, lats = lons.astype(float), lats.astype(float)
 
     if aod550_data_file is not None:
-        # Ensure that the CAMS ECWMF file is a Path object
-        aod550_data_file = Path(aod550_data_file)
+        if isinstance(aod550_data_file, str):
+            # Ensure that the CAMS ECWMF file is a Path object
+            aod550_data_file = Path(aod550_data_file)
         ads = access_dataset(aod550_data_file, load_dataset)
         # Stack the forecast time dimensions
         if is_forecast:
